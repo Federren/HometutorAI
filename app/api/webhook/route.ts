@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { waitUntil } from "@vercel/functions";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -60,13 +61,14 @@ export async function POST(req: NextRequest) {
 
   console.log(`Message from ${userPhone}: ${userText}`);
 
-  try {
-    const aiResponse = await getClaudioResponse(userText);
-    await sendWhatsAppMessage(userPhone, aiResponse);
-  } catch (err) {
-    console.error("Error processing message:", err);
-    // Still return 200 so Meta doesn't retry
-  }
+  // Return 200 to Meta immediately — if we wait for Claude, Vercel's 10s
+  // hobby-plan timeout kills the function and Meta retries endlessly.
+  // waitUntil keeps the process alive to finish after the response is sent.
+  waitUntil(
+    getClaudioResponse(userText)
+      .then((aiResponse) => sendWhatsAppMessage(userPhone, aiResponse))
+      .catch((err) => console.error("Error processing message:", err))
+  );
 
   return NextResponse.json({ status: "ok" }, { status: 200 });
 }
