@@ -92,6 +92,19 @@ async function sendWhatsAppMessage(to: string, text: string): Promise<void> {
   const phoneNumberId = process.env.META_PHONE_NUMBER_ID;
   const accessToken = process.env.META_ACCESS_TOKEN;
 
+  // Meta requires E.164 format without the leading '+' (e.g. "15551234567")
+  const normalizedTo = to.replace(/^\+/, "");
+
+  const payload = {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: normalizedTo,
+    type: "text",
+    text: { body: text },
+  };
+
+  console.log("Sending to Meta:", JSON.stringify({ phoneNumberId, to: normalizedTo }));
+
   const res = await fetch(
     `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`,
     {
@@ -100,19 +113,24 @@ async function sendWhatsAppMessage(to: string, text: string): Promise<void> {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to,
-        type: "text",
-        text: { body: text },
-      }),
+      body: JSON.stringify(payload),
     }
   );
 
   if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(`Meta API error ${res.status}: ${errorBody}`);
+    // Parse Meta's structured error so the code + message are visible in logs
+    let metaError: unknown;
+    try {
+      metaError = await res.json();
+    } catch {
+      metaError = await res.text();
+    }
+    console.error("Meta API error response:", JSON.stringify(metaError));
+    throw new Error(`Meta API ${res.status}: ${JSON.stringify(metaError)}`);
   }
+
+  const result = await res.json();
+  console.log("Meta send success:", JSON.stringify(result));
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
