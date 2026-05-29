@@ -4,6 +4,42 @@ import { waitUntil } from "@vercel/functions";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// ── In-memory conversation store ─────────────────────────────────────────────
+// Keyed by phone number. Resets on cold start — good enough for now,
+// we'll swap this for Redis when we want persistence across restarts.
+
+interface Message {
+  role: "user" | "assistant";
+  content: string;
+}
+
+interface Conversation {
+  messages: Message[];
+  lastActivity: number;
+}
+
+const conversations = new Map<string, Conversation>();
+const MAX_MESSAGES = 20;           // ~10 back-and-forth exchanges
+const SESSION_TTL_MS = 60 * 60 * 1000; // reset context after 1 hour of inactivity
+
+function getHistory(phone: string): Message[] {
+  const conv = conversations.get(phone);
+  if (!conv) return [];
+  // Expire old sessions so context doesn't bleed across different study sessions
+  if (Date.now() - conv.lastActivity > SESSION_TTL_MS) {
+    conversations.delete(phone);
+    return [];
+  }
+  return conv.messages;
+}
+
+function saveHistory(phone: string, messages: Message[]): void {
+  conversations.set(phone, {
+    messages: messages.slice(-MAX_MESSAGES),
+    lastActivity: Date.now(),
+  });
+}
+
 const SYSTEM_PROMPT = `You are HomeTutor AI, a Socratic tutoring assistant on WhatsApp.
 Your role is to help students learn by asking guiding questions rather than giving direct answers.
 Follow these principles:
@@ -65,7 +101,7 @@ export async function POST(req: NextRequest) {
   // hobby-plan timeout kills the function and Meta retries endlessly.
   // waitUntil keeps the process alive to finish after the response is sent.
   waitUntil(
-    getClaudioResponse(userText)
+    getClaudeResponse(userPhone, userText)
       .then((aiResponse) => sendWhatsAppMessage(userPhone, aiResponse))
       .catch((err) => console.error("Error processing message:", err))
   );
@@ -75,16 +111,31 @@ export async function POST(req: NextRequest) {
 
 // ── Anthropic call ───────────────────────────────────────────────────────────
 
-async function getClaudioResponse(userMessage: string): Promise<string> {
+async function getClaudeResponse(userPhone: string, userMessage: string): Promise<string> {
+  const history = getHistory(userPhone);
+
+  // Append the new user message
+  const updatedHistory: Message[] = [
+    ...history,
+    { role: "user", content: userMessage },
+  ];
+
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 512,
     system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userMessage }],
+    messages: updatedHistory,
   });
 
   const block = response.content[0];
   if (block.type !== "text") throw new Error("Unexpected response type");
+
+  // Save the full exchange (including assistant reply) for next turn
+  saveHistory(userPhone, [
+    ...updatedHistory,
+    { role: "assistant", content: block.text },
+  ]);
+
   return block.text;
 }
 
