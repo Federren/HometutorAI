@@ -10,6 +10,8 @@ const redis = new Redis({
 });
 
 // ── Conversation store (Redis) ────────────────────────────────────────────────
+// History is always stored as text strings — image messages are stored as
+// a caption placeholder so Redis stays lean (no base64 blobs in history).
 
 interface Message {
   role: "user" | "assistant";
@@ -93,26 +95,37 @@ export async function POST(req: NextRequest) {
   const change = entry?.changes?.[0];
   const message = change?.value?.messages?.[0];
 
-  if (!message || message.type !== "text") {
-    return NextResponse.json({ status: "no_text_message" }, { status: 200 });
+  if (!message) {
+    return NextResponse.json({ status: "no_message" }, { status: 200 });
   }
 
   const userPhone = message.from;
-  const userText = message.text.body;
 
-  console.log(`Message from ${userPhone}: ${userText}`);
-
-  // Return 200 to Meta immediately — processing happens in the background
-  waitUntil(
-    getClaudeResponse(userPhone, userText)
-      .then((aiResponse) => sendWhatsAppMessage(userPhone, aiResponse))
-      .catch((err) => console.error("Error processing message:", err))
-  );
+  if (message.type === "text") {
+    const userText = message.text!.body;
+    console.log(`Text from ${userPhone}: ${userText}`);
+    waitUntil(
+      getClaudeResponse(userPhone, userText)
+        .then((reply) => sendWhatsAppMessage(userPhone, reply))
+        .catch((err) => console.error("Error processing text:", err))
+    );
+  } else if (message.type === "image") {
+    const mediaId = message.image!.id;
+    const caption = message.image!.caption;
+    console.log(`Image from ${userPhone}, mediaId: ${mediaId}`);
+    waitUntil(
+      getClaudeImageResponse(userPhone, mediaId, caption)
+        .then((reply) => sendWhatsAppMessage(userPhone, reply))
+        .catch((err) => console.error("Error processing image:", err))
+    );
+  } else {
+    console.log(`Unsupported message type: ${message.type}`);
+  }
 
   return NextResponse.json({ status: "ok" }, { status: 200 });
 }
 
-// ── Anthropic call ───────────────────────────────────────────────────────────
+// ── Anthropic: text ──────────────────────────────────────────────────────────
 
 async function getClaudeResponse(userPhone: string, userMessage: string): Promise<string> {
   const history = await getHistory(userPhone);
@@ -140,6 +153,82 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
   return block.text;
 }
 
+// ── Anthropic: image ─────────────────────────────────────────────────────────
+
+async function getClaudeImageResponse(
+  userPhone: string,
+  mediaId: string,
+  caption?: string
+): Promise<string> {
+  // 1. Download image from Meta
+  const { base64, mimeType } = await downloadMetaMedia(mediaId);
+
+  // 2. Build multimodal content block for Claude
+  const imageContent: Anthropic.ImageBlockParam = {
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+      data: base64,
+    },
+  };
+  const textContent: Anthropic.TextBlockParam = {
+    type: "text",
+    text: caption || "This is my homework. Please help me work through it.",
+  };
+
+  // 3. Prepend text history, then the image as the latest user turn
+  const history = await getHistory(userPhone);
+  const response = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 512,
+    system: SYSTEM_PROMPT,
+    messages: [
+      ...history,
+      { role: "user", content: [imageContent, textContent] },
+    ],
+  });
+
+  const block = response.content[0];
+  if (block.type !== "text") throw new Error("Unexpected response type");
+
+  // 4. Store as text placeholder — no base64 in Redis
+  const historyCaption = caption ? `[Image] ${caption}` : "[Image of homework]";
+  await saveHistory(userPhone, [
+    ...history,
+    { role: "user", content: historyCaption },
+    { role: "assistant", content: block.text },
+  ]);
+
+  return block.text;
+}
+
+// ── Meta media download ──────────────────────────────────────────────────────
+
+async function downloadMetaMedia(
+  mediaId: string
+): Promise<{ base64: string; mimeType: string }> {
+  const accessToken = process.env.META_ACCESS_TOKEN;
+
+  // Step 1: resolve the media URL
+  const urlRes = await fetch(`https://graph.facebook.com/v20.0/${mediaId}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!urlRes.ok) throw new Error(`Media URL fetch failed: ${urlRes.status}`);
+  const { url, mime_type } = (await urlRes.json()) as { url: string; mime_type: string };
+
+  // Step 2: download the actual bytes
+  const mediaRes = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!mediaRes.ok) throw new Error(`Media download failed: ${mediaRes.status}`);
+
+  const buffer = await mediaRes.arrayBuffer();
+  const base64 = Buffer.from(buffer).toString("base64");
+
+  return { base64, mimeType: mime_type };
+}
+
 // ── Meta WhatsApp send ───────────────────────────────────────────────────────
 
 async function sendWhatsAppMessage(to: string, text: string): Promise<void> {
@@ -147,16 +236,6 @@ async function sendWhatsAppMessage(to: string, text: string): Promise<void> {
   const accessToken = process.env.META_ACCESS_TOKEN;
 
   const normalizedTo = to.replace(/^\+/, "");
-
-  const payload = {
-    messaging_product: "whatsapp",
-    recipient_type: "individual",
-    to: normalizedTo,
-    type: "text",
-    text: { body: text },
-  };
-
-  console.log("Sending to Meta:", JSON.stringify({ phoneNumberId, to: normalizedTo }));
 
   const res = await fetch(
     `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`,
@@ -166,23 +245,24 @@ async function sendWhatsAppMessage(to: string, text: string): Promise<void> {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: normalizedTo,
+        type: "text",
+        text: { body: text },
+      }),
     }
   );
 
   if (!res.ok) {
     let metaError: unknown;
-    try {
-      metaError = await res.json();
-    } catch {
-      metaError = await res.text();
-    }
-    console.error("Meta API error response:", JSON.stringify(metaError));
+    try { metaError = await res.json(); } catch { metaError = await res.text(); }
+    console.error("Meta API error:", JSON.stringify(metaError));
     throw new Error(`Meta API ${res.status}: ${JSON.stringify(metaError)}`);
   }
 
-  const result = await res.json();
-  console.log("Meta send success:", JSON.stringify(result));
+  console.log("Meta send success:", JSON.stringify(await res.json()));
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -192,12 +272,15 @@ interface WhatsAppPayload {
   entry: Array<{
     changes: Array<{
       value: {
-        messages?: Array<{
-          from: string;
-          type: string;
-          text: { body: string };
-        }>;
+        messages?: Array<WhatsAppMessage>;
       };
     }>;
   }>;
+}
+
+interface WhatsAppMessage {
+  from: string;
+  type: string;
+  text?: { body: string };
+  image?: { id: string; caption?: string; mime_type?: string };
 }
