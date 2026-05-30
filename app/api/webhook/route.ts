@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { waitUntil } from "@vercel/functions";
 import { Redis } from "@upstash/redis";
+import { YoutubeTranscript } from "youtube-transcript";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const redis = new Redis({
@@ -10,30 +11,23 @@ const redis = new Redis({
 });
 
 // ── Conversation store (Redis) ────────────────────────────────────────────────
-// History is always stored as text strings — image messages are stored as
-// a caption placeholder so Redis stays lean (no base64 blobs in history).
 
 interface Message {
   role: "user" | "assistant";
   content: string;
 }
 
-const MAX_MESSAGES = 20;        // ~10 back-and-forth exchanges
-const SESSION_TTL_S = 60 * 60; // expire key after 1 hour of inactivity
+const MAX_MESSAGES = 20;
+const SESSION_TTL_S = 60 * 60;
 
-function redisKey(phone: string) {
-  return `conv:${phone}`;
-}
+const redisKey = (phone: string) => `conv:${phone}`;
 
 async function getHistory(phone: string): Promise<Message[]> {
-  const data = await redis.get<Message[]>(redisKey(phone));
-  return data ?? [];
+  return (await redis.get<Message[]>(redisKey(phone))) ?? [];
 }
 
 async function saveHistory(phone: string, messages: Message[]): Promise<void> {
-  await redis.set(redisKey(phone), messages.slice(-MAX_MESSAGES), {
-    ex: SESSION_TTL_S,
-  });
+  await redis.set(redisKey(phone), messages.slice(-MAX_MESSAGES), { ex: SESSION_TTL_S });
 }
 
 // ── System prompt ─────────────────────────────────────────────────────────────
@@ -58,7 +52,32 @@ General principles:
 - Break complex problems into smaller questions, one at a time.
 - Celebrate correct reasoning, not just correct answers.
 - Keep responses short — this is WhatsApp, not an essay. One question per message.
-- Plain text only. No markdown, no bullet points, no asterisks.`;
+- Plain text only. No markdown, no bullet points, no asterisks.
+
+YouTube tool guidance:
+- Use find_youtube_video when a visual or worked example would genuinely help more than a text exchange (e.g. complex diagrams, physical processes, worked math problems, historical events).
+- Do NOT use it for every question — only when a video adds clear value.
+- When sharing a video, briefly say why it will help, then ask the student to watch it and come back with what they found interesting or confusing.`;
+
+// ── YouTube tool definition ───────────────────────────────────────────────────
+
+const YOUTUBE_TOOLS: Anthropic.Tool[] = [
+  {
+    name: "find_youtube_video",
+    description:
+      "Search YouTube for a short educational video to help the student understand a concept. Use sparingly — only when a visual explanation is clearly better than text.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        search_query: {
+          type: "string",
+          description: "A concise YouTube search query, e.g. 'photosynthesis explained for kids' or 'quadratic formula step by step'",
+        },
+      },
+      required: ["search_query"],
+    },
+  },
+];
 
 // ── GET: Meta webhook verification ──────────────────────────────────────────
 
@@ -69,10 +88,8 @@ export async function GET(req: NextRequest) {
   const challenge = searchParams.get("hub.challenge");
 
   if (mode === "subscribe" && token === process.env.META_WEBHOOK_VERIFY_TOKEN) {
-    console.log("Webhook verified");
     return new NextResponse(challenge, { status: 200 });
   }
-
   return new NextResponse("Forbidden", { status: 403 });
 }
 
@@ -80,7 +97,6 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   let body: WhatsAppPayload;
-
   try {
     body = await req.json();
   } catch {
@@ -91,28 +107,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: "ignored" }, { status: 200 });
   }
 
-  const entry = body.entry?.[0];
-  const change = entry?.changes?.[0];
-  const message = change?.value?.messages?.[0];
-
-  if (!message) {
-    return NextResponse.json({ status: "no_message" }, { status: 200 });
-  }
+  const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+  if (!message) return NextResponse.json({ status: "no_message" }, { status: 200 });
 
   const userPhone = message.from;
 
   if (message.type === "text") {
     const userText = message.text!.body;
     console.log(`Text from ${userPhone}: ${userText}`);
-    waitUntil(
-      getClaudeResponse(userPhone, userText)
-        .then((reply) => sendWhatsAppMessage(userPhone, reply))
-        .catch((err) => console.error("Error processing text:", err))
-    );
+
+    // Check if the message contains a YouTube link
+    const videoId = extractYouTubeId(userText);
+    if (videoId) {
+      waitUntil(
+        handleYouTubeLink(userPhone, videoId, userText)
+          .then((reply) => sendWhatsAppMessage(userPhone, reply))
+          .catch((err) => console.error("Error processing YouTube link:", err))
+      );
+    } else {
+      waitUntil(
+        getClaudeResponse(userPhone, userText)
+          .then((reply) => sendWhatsAppMessage(userPhone, reply))
+          .catch((err) => console.error("Error processing text:", err))
+      );
+    }
   } else if (message.type === "image") {
     const mediaId = message.image!.id;
     const caption = message.image!.caption;
-    console.log(`Image from ${userPhone}, mediaId: ${mediaId}`);
+    console.log(`Image from ${userPhone}`);
     waitUntil(
       getClaudeImageResponse(userPhone, mediaId, caption)
         .then((reply) => sendWhatsAppMessage(userPhone, reply))
@@ -125,15 +147,98 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ status: "ok" }, { status: 200 });
 }
 
-// ── Anthropic: text ──────────────────────────────────────────────────────────
+// ── Anthropic: text (with YouTube tool use) ──────────────────────────────────
 
 async function getClaudeResponse(userPhone: string, userMessage: string): Promise<string> {
   const history = await getHistory(userPhone);
+  const updatedHistory: Message[] = [...history, { role: "user", content: userMessage }];
 
-  const updatedHistory: Message[] = [
-    ...history,
-    { role: "user", content: userMessage },
-  ];
+  const response = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 512,
+    system: SYSTEM_PROMPT,
+    tools: YOUTUBE_TOOLS,
+    messages: updatedHistory,
+  });
+
+  // Claude wants to search YouTube
+  if (response.stop_reason === "tool_use") {
+    const toolBlock = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+    if (toolBlock?.name === "find_youtube_video") {
+      const query = (toolBlock.input as { search_query: string }).search_query;
+      console.log(`Claude searching YouTube: "${query}"`);
+      const video = await searchYouTube(query);
+
+      // Send tool result back to Claude for final response
+      const finalResponse = await anthropic.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 512,
+        system: SYSTEM_PROMPT,
+        tools: YOUTUBE_TOOLS,
+        messages: [
+          ...updatedHistory,
+          { role: "assistant", content: response.content },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: toolBlock.id,
+                content: video
+                  ? `Title: ${video.title}\nURL: ${video.url}`
+                  : "No suitable video found.",
+              },
+            ],
+          },
+        ],
+      });
+
+      const finalBlock = finalResponse.content.find((b): b is Anthropic.TextBlock => b.type === "text");
+      const reply = finalBlock?.text ?? "I couldn't find a good video, let me explain another way.";
+
+      await saveHistory(userPhone, [
+        ...updatedHistory,
+        { role: "assistant", content: reply },
+      ]);
+      return reply;
+    }
+  }
+
+  // Normal text response
+  const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
+  const reply = textBlock?.text ?? "";
+
+  await saveHistory(userPhone, [...updatedHistory, { role: "assistant", content: reply }]);
+  return reply;
+}
+
+// ── Anthropic: incoming YouTube link ─────────────────────────────────────────
+
+async function handleYouTubeLink(
+  userPhone: string,
+  videoId: string,
+  originalMessage: string
+): Promise<string> {
+  const history = await getHistory(userPhone);
+
+  let userContent: string;
+
+  // Try to get transcript
+  const transcript = await fetchYouTubeTranscript(videoId);
+  if (transcript) {
+    console.log(`Fetched transcript for video ${videoId} (${transcript.length} chars)`);
+    userContent =
+      `The student shared a YouTube video (https://youtu.be/${videoId}).\n` +
+      `Their message: "${originalMessage}"\n\n` +
+      `Video transcript (first portion):\n${transcript}`;
+  } else {
+    userContent =
+      `The student shared a YouTube video (https://youtu.be/${videoId}).\n` +
+      `Their message: "${originalMessage}"\n\n` +
+      `No transcript was available for this video. Ask the student what the video is about and what they found confusing.`;
+  }
+
+  const updatedHistory: Message[] = [...history, { role: "user", content: userContent }];
 
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
@@ -142,15 +247,17 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
     messages: updatedHistory,
   });
 
-  const block = response.content[0];
-  if (block.type !== "text") throw new Error("Unexpected response type");
+  const block = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
+  const reply = block?.text ?? "";
 
+  // Store a clean placeholder in history (not the full transcript)
   await saveHistory(userPhone, [
-    ...updatedHistory,
-    { role: "assistant", content: block.text },
+    ...history,
+    { role: "user", content: `[YouTube video: https://youtu.be/${videoId}]` },
+    { role: "assistant", content: reply },
   ]);
 
-  return block.text;
+  return reply;
 }
 
 // ── Anthropic: image ─────────────────────────────────────────────────────────
@@ -160,95 +267,120 @@ async function getClaudeImageResponse(
   mediaId: string,
   caption?: string
 ): Promise<string> {
-  // 1. Download image from Meta
   const { base64, mimeType } = await downloadMetaMedia(mediaId);
-
-  // 2. Build multimodal content block for Claude
-  const imageContent: Anthropic.ImageBlockParam = {
-    type: "image",
-    source: {
-      type: "base64",
-      media_type: mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-      data: base64,
-    },
-  };
-  const textContent: Anthropic.TextBlockParam = {
-    type: "text",
-    text: caption || "This is my homework. Please help me work through it.",
-  };
-
-  // 3. Prepend text history, then the image as the latest user turn
   const history = await getHistory(userPhone);
+
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 512,
     system: SYSTEM_PROMPT,
     messages: [
       ...history,
-      { role: "user", content: [imageContent, textContent] },
+      {
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp", data: base64 } },
+          { type: "text", text: caption || "This is my homework. Please help me work through it." },
+        ],
+      },
     ],
   });
 
-  const block = response.content[0];
-  if (block.type !== "text") throw new Error("Unexpected response type");
+  const block = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
+  const reply = block?.text ?? "";
 
-  // 4. Store as text placeholder — no base64 in Redis
-  const historyCaption = caption ? `[Image] ${caption}` : "[Image of homework]";
   await saveHistory(userPhone, [
     ...history,
-    { role: "user", content: historyCaption },
-    { role: "assistant", content: block.text },
+    { role: "user", content: caption ? `[Image] ${caption}` : "[Image of homework]" },
+    { role: "assistant", content: reply },
   ]);
 
-  return block.text;
+  return reply;
+}
+
+// ── YouTube helpers ───────────────────────────────────────────────────────────
+
+function extractYouTubeId(text: string): string | null {
+  const match = text.match(
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/
+  );
+  return match?.[1] ?? null;
+}
+
+async function fetchYouTubeTranscript(videoId: string): Promise<string | null> {
+  try {
+    const transcript = await YoutubeTranscript.fetchTranscript(videoId);
+    // Join and cap at ~6000 chars (~15 min of speech) to stay within token budget
+    return transcript
+      .map((t) => t.text)
+      .join(" ")
+      .slice(0, 6000);
+  } catch {
+    return null;
+  }
+}
+
+async function searchYouTube(query: string): Promise<{ title: string; url: string } | null> {
+  const apiKey = process.env.YOUTUBE_API_KEY;
+  if (!apiKey) {
+    console.warn("YOUTUBE_API_KEY not set — returning search URL fallback");
+    return {
+      title: "YouTube search results",
+      url: `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`,
+    };
+  }
+
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=video&videoDuration=short&maxResults=1&key=${apiKey}`
+    );
+    const data = await res.json();
+    const item = data.items?.[0];
+    if (!item) return null;
+    return {
+      title: item.snippet.title,
+      url: `https://youtu.be/${item.id.videoId}`,
+    };
+  } catch (err) {
+    console.error("YouTube search error:", err);
+    return null;
+  }
 }
 
 // ── Meta media download ──────────────────────────────────────────────────────
 
-async function downloadMetaMedia(
-  mediaId: string
-): Promise<{ base64: string; mimeType: string }> {
+async function downloadMetaMedia(mediaId: string): Promise<{ base64: string; mimeType: string }> {
   const accessToken = process.env.META_ACCESS_TOKEN;
-
-  // Step 1: resolve the media URL
   const urlRes = await fetch(`https://graph.facebook.com/v20.0/${mediaId}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!urlRes.ok) throw new Error(`Media URL fetch failed: ${urlRes.status}`);
   const { url, mime_type } = (await urlRes.json()) as { url: string; mime_type: string };
 
-  // Step 2: download the actual bytes
-  const mediaRes = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  const mediaRes = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!mediaRes.ok) throw new Error(`Media download failed: ${mediaRes.status}`);
 
-  const buffer = await mediaRes.arrayBuffer();
-  const base64 = Buffer.from(buffer).toString("base64");
-
-  return { base64, mimeType: mime_type };
+  return {
+    base64: Buffer.from(await mediaRes.arrayBuffer()).toString("base64"),
+    mimeType: mime_type,
+  };
 }
 
 // ── Meta WhatsApp send ───────────────────────────────────────────────────────
 
 async function sendWhatsAppMessage(to: string, text: string): Promise<void> {
-  const phoneNumberId = process.env.META_PHONE_NUMBER_ID;
-  const accessToken = process.env.META_ACCESS_TOKEN;
-
-  const normalizedTo = to.replace(/^\+/, "");
-
   const res = await fetch(
-    `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`,
+    `https://graph.facebook.com/v20.0/${process.env.META_PHONE_NUMBER_ID}/messages`,
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${process.env.META_ACCESS_TOKEN}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to: normalizedTo,
+        to: to.replace(/^\+/, ""),
         type: "text",
         text: { body: text },
       }),
@@ -256,26 +388,19 @@ async function sendWhatsAppMessage(to: string, text: string): Promise<void> {
   );
 
   if (!res.ok) {
-    let metaError: unknown;
-    try { metaError = await res.json(); } catch { metaError = await res.text(); }
-    console.error("Meta API error:", JSON.stringify(metaError));
-    throw new Error(`Meta API ${res.status}: ${JSON.stringify(metaError)}`);
+    let err: unknown;
+    try { err = await res.json(); } catch { err = await res.text(); }
+    console.error("Meta API error:", JSON.stringify(err));
+    throw new Error(`Meta API ${res.status}`);
   }
-
-  console.log("Meta send success:", JSON.stringify(await res.json()));
+  console.log("Sent:", JSON.stringify(await res.json()));
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface WhatsAppPayload {
   object: string;
-  entry: Array<{
-    changes: Array<{
-      value: {
-        messages?: Array<WhatsAppMessage>;
-      };
-    }>;
-  }>;
+  entry: Array<{ changes: Array<{ value: { messages?: WhatsAppMessage[] } }> }>;
 }
 
 interface WhatsAppMessage {
