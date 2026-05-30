@@ -4,6 +4,7 @@ import { waitUntil } from "@vercel/functions";
 import { Redis } from "@upstash/redis";
 import { YoutubeTranscript } from "youtube-transcript";
 import OpenAI from "openai";
+import { createClient } from "@supabase/supabase-js";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -11,6 +12,10 @@ const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
 });
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 // ── Conversation store (Redis) ────────────────────────────────────────────────
 
@@ -30,6 +35,62 @@ async function getHistory(phone: string): Promise<Message[]> {
 
 async function saveHistory(phone: string, messages: Message[]): Promise<void> {
   await redis.set(redisKey(phone), messages.slice(-MAX_MESSAGES), { ex: SESSION_TTL_S });
+}
+
+// ── Subject detection ─────────────────────────────────────────────────────────
+
+function detectSubject(content: string): string | null {
+  const lower = content.toLowerCase();
+
+  // Hebrew keyword check (fast path for Hebrew-language messages)
+  if (/[א-ת]/.test(content)) {
+    if (/\b(מתמטיקה|אלגברה|גיאומטריה|חשבון|סטטיסטיקה|הסתברות|אינטגרל|נגזרת|משוואה)\b/.test(content)) return "maths";
+    if (/\b(פיזיקה|כוח|אנרגיה|מהירות|תאוצה|מגנטיות|חשמל|תרמודינמיקה)\b/.test(content)) return "physics";
+    if (/\b(כימיה|מולקולה|אטום|תגובה|חומצה|בסיס|אלקטרון|תרכובת)\b/.test(content)) return "chemistry";
+    if (/\b(ביולוגיה|תא|דנ"א|אבולוציה|פוטוסינתזה|גנטיקה|חיידק)\b/.test(content)) return "biology";
+    if (/\b(היסטוריה|מלחמה|מהפכה|ציוויליזציה|עתיקה|אימפריה)\b/.test(content)) return "history";
+    if (/\b(תנ"ך|תורה|בראשית|שמות|תהלים|תלמוד|גמרא|משנה|פרשת|חומש)\b/.test(content)) return "Tanakh";
+    if (/\b(ספרות עברית|ספרות|שיר|רומן|סיפור|סופר|משורר)\b/.test(content)) return "Hebrew literature";
+    if (/\b(אנגלית)\b/.test(content)) return "English literature";
+    if (/\b(גאוגרפיה|מדינה|יבשת|אקלים|אוכלוסיה)\b/.test(content)) return "geography";
+  }
+
+  const patterns: Array<[string, RegExp]> = [
+    ["maths",              /\b(math|maths|algebra|geometry|calculus|equation|trigonometry|statistics|probability|integral|derivative|quadratic|polynomial|logarithm)\b/],
+    ["physics",            /\b(physics|force|energy|velocity|acceleration|momentum|newton|gravity|electricity|magnetism|quantum|thermodynamics|optics|friction|wave|circuit)\b/],
+    ["chemistry",          /\b(chemistry|chemical|molecule|atom|element|periodic|reaction|acid|base|compound|bond|electron|titration|oxidation)\b/],
+    ["biology",            /\b(biology|cell|organism|dna|evolution|photosynthesis|genetics|species|ecosystem|mitosis|meiosis|protein|enzyme)\b/],
+    ["history",            /\b(history|historical|war|revolution|ancient|medieval|empire|century|civilization|dynasty|holocaust|colonial)\b/],
+    ["English literature", /\b(english|grammar|essay|literature|poem|poetry|novel|shakespeare|prose|metaphor|simile|narrative|author|character)\b/],
+    ["Tanakh",             /\b(tanakh|torah|bible|genesis|exodus|beresheet|shemot|tehilim|mishlei|kohelet|talmud|gemara|mishnah|parasha|parshat|sefaria)\b/],
+    ["science",            /\b(science|experiment|hypothesis|scientific|lab|laboratory)\b/],
+    ["geography",          /\b(geography|country|continent|climate|map|region|capital city|population|latitude|longitude)\b/],
+    ["coding",             /\b(code|coding|programming|python|javascript|algorithm|function|variable|loop|array|database|software)\b/],
+  ];
+
+  for (const [subject, pattern] of patterns) {
+    if (pattern.test(lower)) return subject;
+  }
+  return null;
+}
+
+// ── Supabase message logging ──────────────────────────────────────────────────
+
+async function logMessage(
+  phone: string,
+  role: "user" | "assistant",
+  content: string,
+  subject?: string | null
+): Promise<void> {
+  const profile = getProfile(phone);
+  const { error } = await supabase.from("messages").insert({
+    phone_number: phone,
+    child_name: profile.name,
+    role,
+    content,
+    subject_detected: subject ?? null,
+  });
+  if (error) console.error("Supabase log error:", error.message);
 }
 
 // ── Student profiles ──────────────────────────────────────────────────────────
@@ -261,6 +322,9 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
   const history = await getHistory(userPhone);
   const updatedHistory: Message[] = [...history, { role: "user", content: userMessage }];
 
+  const subject = detectSubject(userMessage);
+  await logMessage(userPhone, "user", userMessage, subject);
+
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 512,
@@ -307,6 +371,7 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
       const finalBlock = finalResponse.content.find((b): b is Anthropic.TextBlock => b.type === "text");
       const reply = finalBlock?.text ?? "";
       await saveHistory(userPhone, [...updatedHistory, { role: "assistant", content: reply }]);
+      await logMessage(userPhone, "assistant", reply, subject);
       return reply;
     }
   }
@@ -315,6 +380,7 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
   const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
   const reply = textBlock?.text ?? "";
   await saveHistory(userPhone, [...updatedHistory, { role: "assistant", content: reply }]);
+  await logMessage(userPhone, "assistant", reply, subject);
   return reply;
 }
 
@@ -364,6 +430,9 @@ async function handleYouTubeLink(
     { role: "assistant", content: reply },
   ]);
 
+  await logMessage(userPhone, "user", `[YouTube video: https://youtu.be/${videoId}] ${originalMessage}`.trim(), "YouTube");
+  await logMessage(userPhone, "assistant", reply, "YouTube");
+
   return reply;
 }
 
@@ -397,11 +466,16 @@ async function getClaudeImageResponse(
   const block = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
   const reply = block?.text ?? "";
 
+  const imageLabel = caption ? `[Image] ${caption}` : "[Image of homework]";
   await saveHistory(userPhone, [
     ...history,
-    { role: "user", content: caption ? `[Image] ${caption}` : "[Image of homework]" },
+    { role: "user", content: imageLabel },
     { role: "assistant", content: reply },
   ]);
+
+  const imageSubject = detectSubject(caption ?? "");
+  await logMessage(userPhone, "user", imageLabel, imageSubject);
+  await logMessage(userPhone, "assistant", reply, imageSubject);
 
   return reply;
 }
