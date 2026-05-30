@@ -55,6 +55,15 @@ const PROFILES: Record<string, StudentProfile> = {
     language: "Hebrew and English mix — match whichever language Eitan writes in",
     tone: "peer-like and encouraging, like a cool older sibling who is good at school",
   },
+  "972504862999": {
+    name: "Yonathan",
+    age: 17,
+    grade: "11th/12th grade (Bagrut)",
+    stream: "Hebrew secular",
+    subjects: ["maths", "physics", "chemistry", "English literature", "history", "Hebrew literature"],
+    language: "Hebrew and English — match whichever language Yonathan writes in",
+    tone: "academic and peer-like — treat him as a serious student under real Bagrut exam pressure. He is preparing for high-stakes exams. Be efficient, precise, and respect his time. When he is stuck on a maths or science problem, guide him step by step through the reasoning without giving the answer — help him reach it himself. Acknowledge exam stress when it shows, but keep the focus on building genuine understanding, not just exam technique.",
+  },
 };
 
 const DEFAULT_PROFILE: StudentProfile = {
