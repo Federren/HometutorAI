@@ -1,44 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { waitUntil } from "@vercel/functions";
+import { Redis } from "@upstash/redis";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+});
 
-// ── In-memory conversation store ─────────────────────────────────────────────
-// Keyed by phone number. Resets on cold start — good enough for now,
-// we'll swap this for Redis when we want persistence across restarts.
+// ── Conversation store (Redis) ────────────────────────────────────────────────
 
 interface Message {
   role: "user" | "assistant";
   content: string;
 }
 
-interface Conversation {
-  messages: Message[];
-  lastActivity: number;
+const MAX_MESSAGES = 20;        // ~10 back-and-forth exchanges
+const SESSION_TTL_S = 60 * 60; // expire key after 1 hour of inactivity
+
+function redisKey(phone: string) {
+  return `conv:${phone}`;
 }
 
-const conversations = new Map<string, Conversation>();
-const MAX_MESSAGES = 20;           // ~10 back-and-forth exchanges
-const SESSION_TTL_MS = 60 * 60 * 1000; // reset context after 1 hour of inactivity
-
-function getHistory(phone: string): Message[] {
-  const conv = conversations.get(phone);
-  if (!conv) return [];
-  // Expire old sessions so context doesn't bleed across different study sessions
-  if (Date.now() - conv.lastActivity > SESSION_TTL_MS) {
-    conversations.delete(phone);
-    return [];
-  }
-  return conv.messages;
+async function getHistory(phone: string): Promise<Message[]> {
+  const data = await redis.get<Message[]>(redisKey(phone));
+  return data ?? [];
 }
 
-function saveHistory(phone: string, messages: Message[]): void {
-  conversations.set(phone, {
-    messages: messages.slice(-MAX_MESSAGES),
-    lastActivity: Date.now(),
+async function saveHistory(phone: string, messages: Message[]): Promise<void> {
+  await redis.set(redisKey(phone), messages.slice(-MAX_MESSAGES), {
+    ex: SESSION_TTL_S,
   });
 }
+
+// ── System prompt ─────────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `You are HomeTutor AI, a Socratic tutoring assistant on WhatsApp.
 Your role is to help students learn by asking guiding questions rather than giving direct answers.
@@ -78,7 +74,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  // Meta sends a test ping when you first save the webhook — acknowledge it
   if (body.object !== "whatsapp_business_account") {
     return NextResponse.json({ status: "ignored" }, { status: 200 });
   }
@@ -87,7 +82,6 @@ export async function POST(req: NextRequest) {
   const change = entry?.changes?.[0];
   const message = change?.value?.messages?.[0];
 
-  // Only handle incoming text messages
   if (!message || message.type !== "text") {
     return NextResponse.json({ status: "no_text_message" }, { status: 200 });
   }
@@ -97,9 +91,7 @@ export async function POST(req: NextRequest) {
 
   console.log(`Message from ${userPhone}: ${userText}`);
 
-  // Return 200 to Meta immediately — if we wait for Claude, Vercel's 10s
-  // hobby-plan timeout kills the function and Meta retries endlessly.
-  // waitUntil keeps the process alive to finish after the response is sent.
+  // Return 200 to Meta immediately — processing happens in the background
   waitUntil(
     getClaudeResponse(userPhone, userText)
       .then((aiResponse) => sendWhatsAppMessage(userPhone, aiResponse))
@@ -112,9 +104,8 @@ export async function POST(req: NextRequest) {
 // ── Anthropic call ───────────────────────────────────────────────────────────
 
 async function getClaudeResponse(userPhone: string, userMessage: string): Promise<string> {
-  const history = getHistory(userPhone);
+  const history = await getHistory(userPhone);
 
-  // Append the new user message
   const updatedHistory: Message[] = [
     ...history,
     { role: "user", content: userMessage },
@@ -130,8 +121,7 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
   const block = response.content[0];
   if (block.type !== "text") throw new Error("Unexpected response type");
 
-  // Save the full exchange (including assistant reply) for next turn
-  saveHistory(userPhone, [
+  await saveHistory(userPhone, [
     ...updatedHistory,
     { role: "assistant", content: block.text },
   ]);
@@ -145,7 +135,6 @@ async function sendWhatsAppMessage(to: string, text: string): Promise<void> {
   const phoneNumberId = process.env.META_PHONE_NUMBER_ID;
   const accessToken = process.env.META_ACCESS_TOKEN;
 
-  // Meta requires E.164 format without the leading '+' (e.g. "15551234567")
   const normalizedTo = to.replace(/^\+/, "");
 
   const payload = {
@@ -171,7 +160,6 @@ async function sendWhatsAppMessage(to: string, text: string): Promise<void> {
   );
 
   if (!res.ok) {
-    // Parse Meta's structured error so the code + message are visible in logs
     let metaError: unknown;
     try {
       metaError = await res.json();
