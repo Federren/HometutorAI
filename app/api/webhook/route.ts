@@ -3,8 +3,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { waitUntil } from "@vercel/functions";
 import { Redis } from "@upstash/redis";
 import { YoutubeTranscript } from "youtube-transcript";
+import OpenAI from "openai";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
@@ -139,6 +141,14 @@ export async function POST(req: NextRequest) {
       getClaudeImageResponse(userPhone, mediaId, caption)
         .then((reply) => sendWhatsAppMessage(userPhone, reply))
         .catch((err) => console.error("Error processing image:", err))
+    );
+  } else if (message.type === "audio") {
+    const mediaId = message.audio!.id;
+    console.log(`Voice message from ${userPhone}`);
+    waitUntil(
+      transcribeAndRespond(userPhone, mediaId)
+        .then((reply) => sendWhatsAppMessage(userPhone, reply))
+        .catch((err) => console.error("Error processing audio:", err))
     );
   } else {
     console.log(`Unsupported message type: ${message.type}`);
@@ -347,9 +357,35 @@ async function searchYouTube(query: string): Promise<{ title: string; url: strin
   }
 }
 
+// ── Whisper voice transcription ──────────────────────────────────────────────
+
+async function transcribeAndRespond(userPhone: string, mediaId: string): Promise<string> {
+  // Download voice note from Meta (WhatsApp sends OGG/Opus)
+  const { buffer, mimeType } = await downloadMetaMediaBuffer(mediaId);
+
+  // Send to Whisper for transcription
+  const file = new File([buffer], "voice.ogg", { type: mimeType });
+  const transcription = await openai.audio.transcriptions.create({
+    file,
+    model: "whisper-1",
+  });
+
+  const transcript = transcription.text.trim();
+  console.log(`Transcribed voice: "${transcript}"`);
+
+  if (!transcript) {
+    return "I couldn't make out what you said — could you try again or type your question?";
+  }
+
+  // Treat the transcript exactly like a text message
+  return getClaudeResponse(userPhone, transcript);
+}
+
 // ── Meta media download ──────────────────────────────────────────────────────
 
-async function downloadMetaMedia(mediaId: string): Promise<{ base64: string; mimeType: string }> {
+async function downloadMetaMediaBuffer(
+  mediaId: string
+): Promise<{ buffer: ArrayBuffer; mimeType: string }> {
   const accessToken = process.env.META_ACCESS_TOKEN;
   const urlRes = await fetch(`https://graph.facebook.com/v20.0/${mediaId}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -360,10 +396,12 @@ async function downloadMetaMedia(mediaId: string): Promise<{ base64: string; mim
   const mediaRes = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!mediaRes.ok) throw new Error(`Media download failed: ${mediaRes.status}`);
 
-  return {
-    base64: Buffer.from(await mediaRes.arrayBuffer()).toString("base64"),
-    mimeType: mime_type,
-  };
+  return { buffer: await mediaRes.arrayBuffer(), mimeType: mime_type };
+}
+
+async function downloadMetaMedia(mediaId: string): Promise<{ base64: string; mimeType: string }> {
+  const { buffer, mimeType } = await downloadMetaMediaBuffer(mediaId);
+  return { base64: Buffer.from(buffer).toString("base64"), mimeType };
 }
 
 // ── Meta WhatsApp send ───────────────────────────────────────────────────────
@@ -408,4 +446,5 @@ interface WhatsAppMessage {
   type: string;
   text?: { body: string };
   image?: { id: string; caption?: string; mime_type?: string };
+  audio?: { id: string; mime_type?: string };
 }
