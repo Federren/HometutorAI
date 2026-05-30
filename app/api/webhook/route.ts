@@ -94,7 +94,13 @@ General principles:
 YouTube tool guidance:
 - Use find_youtube_video when a visual or worked example would genuinely help more than a text exchange (e.g. complex diagrams, physical processes, worked math problems, historical events).
 - Do NOT use it for every question — only when a video adds clear value.
-- When sharing a video, briefly say why it will help, then ask the student to watch it and come back with what they found interesting or confusing.`;
+- When sharing a video, briefly say why it will help, then ask the student to watch it and come back with what they found interesting or confusing.
+
+Sefaria tool guidance:
+- Use get_sefaria_text to fetch the exact Hebrew and English text of any Tanakh, Talmud, Mishnah, Midrash, or commentary passage before discussing it. Always work from the real text.
+- Use search_sefaria when the student asks a thematic question (e.g. "what does the Torah say about honesty?") to find the most relevant passages.
+- After fetching a text, quote the relevant line briefly, then ask the student what they notice or what they think it means — never explain it for them first.
+- Respond in Hebrew when discussing Hebrew texts with Hebrew-language students.`;
 
 function buildSystemPrompt(profile: StudentProfile): string {
   const lines = [
@@ -113,9 +119,9 @@ Student profile — calibrate your vocabulary, examples, and language accordingl
 ${lines}`;
 }
 
-// ── YouTube tool definition ───────────────────────────────────────────────────
+// ── Tool definitions ──────────────────────────────────────────────────────────
 
-const YOUTUBE_TOOLS: Anthropic.Tool[] = [
+const ALL_TOOLS: Anthropic.Tool[] = [
   {
     name: "find_youtube_video",
     description:
@@ -129,6 +135,36 @@ const YOUTUBE_TOOLS: Anthropic.Tool[] = [
         },
       },
       required: ["search_query"],
+    },
+  },
+  {
+    name: "get_sefaria_text",
+    description:
+      "Fetch the Hebrew and English text of a specific Jewish text by Sefaria reference. Use for any Tanakh, Talmud, Mishnah, Midrash, or classic commentary passage. Always fetch the real text before discussing it.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        reference: {
+          type: "string",
+          description: "Sefaria reference, e.g. 'Genesis 1:1', 'Exodus 20:2-14', 'Pirkei Avot 1:1', 'Rashi on Genesis 1:1', 'Berakhot 2a'",
+        },
+      },
+      required: ["reference"],
+    },
+  },
+  {
+    name: "search_sefaria",
+    description:
+      "Search Sefaria's library for Jewish texts related to a topic or keyword. Use when the student asks a thematic question and you need to find the most relevant passage.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query in English or Hebrew, e.g. 'creation of the world', 'loving your neighbour', 'teshuvah'",
+        },
+      },
+      required: ["query"],
     },
   },
 ];
@@ -220,49 +256,48 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
     model: "claude-sonnet-4-6",
     max_tokens: 512,
     system: buildSystemPrompt(profile),
-    tools: YOUTUBE_TOOLS,
+    tools: ALL_TOOLS,
     messages: updatedHistory,
   });
 
-  // Claude wants to search YouTube
+  // Claude called a tool — resolve it and get the final response
   if (response.stop_reason === "tool_use") {
     const toolBlock = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-    if (toolBlock?.name === "find_youtube_video") {
-      const query = (toolBlock.input as { search_query: string }).search_query;
-      console.log(`Claude searching YouTube: "${query}"`);
-      const video = await searchYouTube(query);
+    if (toolBlock) {
+      let toolResult = "No result found.";
 
-      // Send tool result back to Claude for final response
+      if (toolBlock.name === "find_youtube_video") {
+        const query = (toolBlock.input as { search_query: string }).search_query;
+        console.log(`Claude searching YouTube: "${query}"`);
+        const video = await searchYouTube(query);
+        toolResult = video ? `Title: ${video.title}\nURL: ${video.url}` : "No suitable video found.";
+
+      } else if (toolBlock.name === "get_sefaria_text") {
+        const ref = (toolBlock.input as { reference: string }).reference;
+        console.log(`Claude fetching Sefaria text: "${ref}"`);
+        toolResult = await getSefariaText(ref);
+
+      } else if (toolBlock.name === "search_sefaria") {
+        const query = (toolBlock.input as { query: string }).query;
+        console.log(`Claude searching Sefaria: "${query}"`);
+        toolResult = await searchSefaria(query);
+      }
+
       const finalResponse = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
         max_tokens: 512,
         system: buildSystemPrompt(profile),
-        tools: YOUTUBE_TOOLS,
+        tools: ALL_TOOLS,
         messages: [
           ...updatedHistory,
           { role: "assistant", content: response.content },
-          {
-            role: "user",
-            content: [
-              {
-                type: "tool_result",
-                tool_use_id: toolBlock.id,
-                content: video
-                  ? `Title: ${video.title}\nURL: ${video.url}`
-                  : "No suitable video found.",
-              },
-            ],
-          },
+          { role: "user", content: [{ type: "tool_result", tool_use_id: toolBlock.id, content: toolResult }] },
         ],
       });
 
       const finalBlock = finalResponse.content.find((b): b is Anthropic.TextBlock => b.type === "text");
-      const reply = finalBlock?.text ?? "I couldn't find a good video, let me explain another way.";
-
-      await saveHistory(userPhone, [
-        ...updatedHistory,
-        { role: "assistant", content: reply },
-      ]);
+      const reply = finalBlock?.text ?? "";
+      await saveHistory(userPhone, [...updatedHistory, { role: "assistant", content: reply }]);
       return reply;
     }
   }
@@ -270,7 +305,6 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
   // Normal text response
   const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
   const reply = textBlock?.text ?? "";
-
   await saveHistory(userPhone, [...updatedHistory, { role: "assistant", content: reply }]);
   return reply;
 }
@@ -361,6 +395,69 @@ async function getClaudeImageResponse(
   ]);
 
   return reply;
+}
+
+// ── Sefaria helpers ───────────────────────────────────────────────────────────
+
+async function getSefariaText(reference: string): Promise<string> {
+  try {
+    const encoded = encodeURIComponent(reference);
+    const res = await fetch(
+      `https://www.sefaria.org/api/texts/${encoded}?lang=en&commentary=0&context=0`
+    );
+    if (!res.ok) return `Text not found for reference: ${reference}`;
+    const data = await res.json() as {
+      ref?: string;
+      heRef?: string;
+      text?: string | string[];
+      he?: string | string[];
+      error?: string;
+    };
+
+    if (data.error) return `Sefaria error: ${data.error}`;
+
+    const flatten = (t: string | string[] | undefined): string => {
+      if (!t) return "";
+      if (typeof t === "string") return t;
+      return t.flat(Infinity).join(" ");
+    };
+
+    const heText = flatten(data.he).replace(/<[^>]+>/g, "").trim();
+    const enText = flatten(data.text).replace(/<[^>]+>/g, "").trim();
+
+    return [
+      `Reference: ${data.ref ?? reference}`,
+      heText ? `Hebrew: ${heText}` : "",
+      enText ? `English: ${enText}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .slice(0, 3000);
+  } catch (err) {
+    console.error("Sefaria getText error:", err);
+    return "Could not retrieve text from Sefaria.";
+  }
+}
+
+async function searchSefaria(query: string): Promise<string> {
+  try {
+    const res = await fetch(
+      `https://www.sefaria.org/api/search-wrapper?query=${encodeURIComponent(query)}&type=text&field=exact&slop=10&sort_type=score&sort_dir=desc&size=3&from=0`
+    );
+    if (!res.ok) return "Sefaria search failed.";
+    const data = await res.json() as { hits?: { hits?: Array<{ _source?: { ref?: string; text?: { en?: string } } }> } };
+    const hits = data.hits?.hits ?? [];
+    if (!hits.length) return "No results found in Sefaria for that query.";
+
+    return hits
+      .map((h) => `${h._source?.ref}: ${h._source?.text?.en ?? ""}`)
+      .join("\n\n")
+      .replace(/<[^>]+>/g, "")
+      .slice(0, 2000);
+  } catch (err) {
+    console.error("Sefaria search error:", err);
+    return "Could not search Sefaria.";
+  }
 }
 
 // ── YouTube helpers ───────────────────────────────────────────────────────────
