@@ -32,9 +32,44 @@ async function saveHistory(phone: string, messages: Message[]): Promise<void> {
   await redis.set(redisKey(phone), messages.slice(-MAX_MESSAGES), { ex: SESSION_TTL_S });
 }
 
-// ── System prompt ─────────────────────────────────────────────────────────────
+// ── Student profiles ──────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are HomeTutor AI, a Socratic tutoring assistant on WhatsApp.
+interface StudentProfile {
+  name: string;
+  age?: number;
+  grade?: string;
+  stream?: string;
+  subjects?: string[];
+  language: string;
+  tone: string;
+}
+
+// Phone numbers are stored without the leading '+' (as received from WhatsApp)
+const PROFILES: Record<string, StudentProfile> = {
+  "972524977815": {
+    name: "Eitan",
+    age: 13,
+    grade: "8th grade",
+    stream: "Hebrew secular",
+    subjects: ["maths", "history", "English", "Tanakh", "science"],
+    language: "Hebrew and English mix — match whichever language Eitan writes in",
+    tone: "peer-like and encouraging, like a cool older sibling who is good at school",
+  },
+};
+
+const DEFAULT_PROFILE: StudentProfile = {
+  name: "Student",
+  language: "English",
+  tone: "professional and supportive",
+};
+
+function getProfile(phone: string): StudentProfile {
+  return PROFILES[phone] ?? DEFAULT_PROFILE;
+}
+
+// ── System prompt (dynamic per profile) ──────────────────────────────────────
+
+const BASE_PROMPT = `You are HomeTutor AI, a Socratic tutoring assistant on WhatsApp.
 You help students with ALL school subjects — math, science, history, literature, languages, geography, coding, economics, and anything else they bring to you.
 Your role is to guide students to discover answers themselves through probing questions, never by stating the answer directly.
 
@@ -60,6 +95,23 @@ YouTube tool guidance:
 - Use find_youtube_video when a visual or worked example would genuinely help more than a text exchange (e.g. complex diagrams, physical processes, worked math problems, historical events).
 - Do NOT use it for every question — only when a video adds clear value.
 - When sharing a video, briefly say why it will help, then ask the student to watch it and come back with what they found interesting or confusing.`;
+
+function buildSystemPrompt(profile: StudentProfile): string {
+  const lines = [
+    `- Name: ${profile.name}`,
+    profile.age ? `- Age: ${profile.age}` : null,
+    profile.grade ? `- Grade: ${profile.grade}` : null,
+    profile.stream ? `- School stream: ${profile.stream}` : null,
+    profile.subjects ? `- Subjects: ${profile.subjects.join(", ")}` : null,
+    `- Language: ${profile.language}`,
+    `- Tone: ${profile.tone}`,
+  ].filter(Boolean).join("\n");
+
+  return `${BASE_PROMPT}
+
+Student profile — calibrate your vocabulary, examples, and language accordingly:
+${lines}`;
+}
 
 // ── YouTube tool definition ───────────────────────────────────────────────────
 
@@ -160,13 +212,14 @@ export async function POST(req: NextRequest) {
 // ── Anthropic: text (with YouTube tool use) ──────────────────────────────────
 
 async function getClaudeResponse(userPhone: string, userMessage: string): Promise<string> {
+  const profile = getProfile(userPhone);
   const history = await getHistory(userPhone);
   const updatedHistory: Message[] = [...history, { role: "user", content: userMessage }];
 
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 512,
-    system: SYSTEM_PROMPT,
+    system: buildSystemPrompt(profile),
     tools: YOUTUBE_TOOLS,
     messages: updatedHistory,
   });
@@ -183,7 +236,7 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
       const finalResponse = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
         max_tokens: 512,
-        system: SYSTEM_PROMPT,
+        system: buildSystemPrompt(profile),
         tools: YOUTUBE_TOOLS,
         messages: [
           ...updatedHistory,
@@ -229,6 +282,7 @@ async function handleYouTubeLink(
   videoId: string,
   originalMessage: string
 ): Promise<string> {
+  const profile = getProfile(userPhone);
   const history = await getHistory(userPhone);
 
   let userContent: string;
@@ -253,7 +307,7 @@ async function handleYouTubeLink(
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 512,
-    system: SYSTEM_PROMPT,
+    system: buildSystemPrompt(profile),
     messages: updatedHistory,
   });
 
@@ -277,13 +331,14 @@ async function getClaudeImageResponse(
   mediaId: string,
   caption?: string
 ): Promise<string> {
+  const profile = getProfile(userPhone);
   const { base64, mimeType } = await downloadMetaMedia(mediaId);
   const history = await getHistory(userPhone);
 
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 512,
-    system: SYSTEM_PROMPT,
+    system: buildSystemPrompt(profile),
     messages: [
       ...history,
       {
