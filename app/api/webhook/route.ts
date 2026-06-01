@@ -24,7 +24,7 @@ interface Message {
   content: string;
 }
 
-const MAX_MESSAGES = 20;
+const MAX_MESSAGES = 12;
 const SESSION_TTL_S = 60 * 60;
 
 const redisKey = (phone: string) => `conv:${phone}`;
@@ -332,7 +332,7 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
   const updatedHistory: Message[] = [...history, { role: "user", content: userMessage }];
 
   const subject = detectSubject(userMessage);
-  await logMessage(userPhone, "user", userMessage, subject);
+  logMessage(userPhone, "user", userMessage, subject).catch(e => console.error("Log error:", e));
 
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
@@ -380,7 +380,7 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
       const finalBlock = finalResponse.content.find((b): b is Anthropic.TextBlock => b.type === "text");
       const reply = finalBlock?.text ?? "";
       await saveHistory(userPhone, [...updatedHistory, { role: "assistant", content: reply }]);
-      await logMessage(userPhone, "assistant", reply, subject);
+      logMessage(userPhone, "assistant", reply, subject).catch(e => console.error("Log error:", e));
       return reply;
     }
   }
@@ -389,7 +389,7 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
   const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
   const reply = textBlock?.text ?? "";
   await saveHistory(userPhone, [...updatedHistory, { role: "assistant", content: reply }]);
-  await logMessage(userPhone, "assistant", reply, subject);
+  logMessage(userPhone, "assistant", reply, subject).catch(e => console.error("Log error:", e));
   return reply;
 }
 
@@ -439,8 +439,8 @@ async function handleYouTubeLink(
     { role: "assistant", content: reply },
   ]);
 
-  await logMessage(userPhone, "user", `[YouTube video: https://youtu.be/${videoId}] ${originalMessage}`.trim(), "YouTube");
-  await logMessage(userPhone, "assistant", reply, "YouTube");
+  logMessage(userPhone, "user", `[YouTube video: https://youtu.be/${videoId}] ${originalMessage}`.trim(), "YouTube").catch(e => console.error("Log error:", e));
+  logMessage(userPhone, "assistant", reply, "YouTube").catch(e => console.error("Log error:", e));
 
   return reply;
 }
@@ -483,8 +483,8 @@ async function getClaudeImageResponse(
   ]);
 
   const imageSubject = detectSubject(caption ?? "");
-  await logMessage(userPhone, "user", imageLabel, imageSubject);
-  await logMessage(userPhone, "assistant", reply, imageSubject);
+  logMessage(userPhone, "user", imageLabel, imageSubject).catch(e => console.error("Log error:", e));
+  logMessage(userPhone, "assistant", reply, imageSubject).catch(e => console.error("Log error:", e));
 
   return reply;
 }
