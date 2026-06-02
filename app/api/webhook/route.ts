@@ -296,47 +296,56 @@ export async function POST(req: NextRequest) {
 
   console.log(`Incoming via phoneNumberId=${phoneNumberId} from=${userPhone}`);
 
+  waitUntil(processMessage(phoneNumberId, userPhone, message).catch(
+    (err) => console.error("Error processing message:", err)
+  ));
+
+  return NextResponse.json({ status: "ok" }, { status: 200 });
+}
+
+async function processMessage(
+  phoneNumberId: string,
+  userPhone: string,
+  message: WhatsAppMessage
+): Promise<void> {
+  // Reject unknown numbers
+  const profiles = await getAllProfiles();
+  if (!profiles[userPhone]) {
+    console.log(`Unknown number ${userPhone} — sending rejection`);
+    await sendWhatsAppMessage(
+      phoneNumberId,
+      userPhone,
+      "This is a private service. To learn more visit hometutorai.to"
+    );
+    return;
+  }
+
   if (message.type === "text") {
     const userText = message.text!.body;
     console.log(`Text from ${userPhone}: ${userText}`);
 
-    // Check if the message contains a YouTube link
     const videoId = extractYouTubeId(userText);
-    if (videoId) {
-      waitUntil(
-        handleYouTubeLink(userPhone, videoId, userText)
-          .then((reply) => sendWhatsAppMessage(phoneNumberId, userPhone, reply))
-          .catch((err) => console.error("Error processing YouTube link:", err))
-      );
-    } else {
-      waitUntil(
-        getClaudeResponse(userPhone, userText)
-          .then((reply) => sendWhatsAppMessage(phoneNumberId, userPhone, reply))
-          .catch((err) => console.error("Error processing text:", err))
-      );
-    }
+    const reply = videoId
+      ? await handleYouTubeLink(userPhone, videoId, userText)
+      : await getClaudeResponse(userPhone, userText);
+    await sendWhatsAppMessage(phoneNumberId, userPhone, reply);
+
   } else if (message.type === "image") {
     const mediaId = message.image!.id;
     const caption = message.image!.caption;
     console.log(`Image from ${userPhone}`);
-    waitUntil(
-      getClaudeImageResponse(userPhone, mediaId, caption)
-        .then((reply) => sendWhatsAppMessage(phoneNumberId, userPhone, reply))
-        .catch((err) => console.error("Error processing image:", err))
-    );
+    const reply = await getClaudeImageResponse(userPhone, mediaId, caption);
+    await sendWhatsAppMessage(phoneNumberId, userPhone, reply);
+
   } else if (message.type === "audio") {
     const mediaId = message.audio!.id;
     console.log(`Voice message from ${userPhone}`);
-    waitUntil(
-      transcribeAndRespond(userPhone, mediaId)
-        .then((reply) => sendWhatsAppMessage(phoneNumberId, userPhone, reply))
-        .catch((err) => console.error("Error processing audio:", err))
-    );
+    const reply = await transcribeAndRespond(userPhone, mediaId);
+    await sendWhatsAppMessage(phoneNumberId, userPhone, reply);
+
   } else {
     console.log(`Unsupported message type: ${message.type}`);
   }
-
-  return NextResponse.json({ status: "ok" }, { status: 200 });
 }
 
 // ── Anthropic: text (with YouTube tool use) ──────────────────────────────────
