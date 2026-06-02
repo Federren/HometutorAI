@@ -42,17 +42,18 @@ async function saveHistory(phone: string, messages: Message[]): Promise<void> {
 function detectSubject(content: string): string | null {
   const lower = content.toLowerCase();
 
-  // Hebrew keyword check (fast path for Hebrew-language messages)
+  // Hebrew keyword check — no \b anchors, they don't work with non-ASCII characters
   if (/[א-ת]/.test(content)) {
-    if (/\b(מתמטיקה|אלגברה|גיאומטריה|חשבון|סטטיסטיקה|הסתברות|אינטגרל|נגזרת|משוואה)\b/.test(content)) return "maths";
-    if (/\b(פיזיקה|כוח|אנרגיה|מהירות|תאוצה|מגנטיות|חשמל|תרמודינמיקה)\b/.test(content)) return "physics";
-    if (/\b(כימיה|מולקולה|אטום|תגובה|חומצה|בסיס|אלקטרון|תרכובת)\b/.test(content)) return "chemistry";
-    if (/\b(ביולוגיה|תא|דנ"א|אבולוציה|פוטוסינתזה|גנטיקה|חיידק)\b/.test(content)) return "biology";
-    if (/\b(היסטוריה|מלחמה|מהפכה|ציוויליזציה|עתיקה|אימפריה)\b/.test(content)) return "history";
-    if (/\b(תנ"ך|תורה|בראשית|שמות|תהלים|תלמוד|גמרא|משנה|פרשת|חומש)\b/.test(content)) return "Tanakh";
-    if (/\b(ספרות עברית|ספרות|שיר|רומן|סיפור|סופר|משורר)\b/.test(content)) return "Hebrew literature";
-    if (/\b(אנגלית)\b/.test(content)) return "English literature";
-    if (/\b(גאוגרפיה|מדינה|יבשת|אקלים|אוכלוסיה)\b/.test(content)) return "geography";
+    if (/(מתמטיקה|אלגברה|גיאומטריה|חשבון|סטטיסטיקה|הסתברות|אינטגרל|נגזרת|משוואה|חיסור|חיבור|כפל|חילוק|עשרוניים|שברים|אחוזים)/.test(content)) return "maths";
+    if (/(פיזיקה|כוח|אנרגיה|מהירות|תאוצה|מגנטיות|חשמל|תרמודינמיקה)/.test(content)) return "physics";
+    if (/(כימיה|מולקולה|אטום|תגובה|חומצה|בסיס|אלקטרון|תרכובת)/.test(content)) return "chemistry";
+    if (/(ביולוגיה|תא חי|דנ"א|אבולוציה|פוטוסינתזה|גנטיקה|חיידק|סרטן)/.test(content)) return "biology";
+    if (/(היסטוריה|מלחמה|מהפכה|ציוויליזציה|אימפריה|תרבות עתיקה)/.test(content)) return "history";
+    if (/(תנ"ך|תורה|בראשית|שמות|תהלים|תלמוד|גמרא|משנה|פרשת|חומש)/.test(content)) return "Tanakh";
+    if (/(ספרות עברית|שיר|רומן|סיפור קצר|סופר|משורר)/.test(content)) return "Hebrew literature";
+    if (/(אנגלית|מילה באנגלית|לתרגם|תרגום)/.test(content)) return "English";
+    if (/(גאוגרפיה|מדינה|יבשת|אקלים|אוכלוסיה)/.test(content)) return "geography";
+    if (/(מדעים|ניסוי|מעבדה|טבע|מערכת השמש|חומר|אנרגיה)/.test(content)) return "science";
   }
 
   const patterns: Array<[string, RegExp]> = [
