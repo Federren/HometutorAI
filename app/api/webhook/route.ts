@@ -83,7 +83,7 @@ async function logMessage(
   content: string,
   subject?: string | null
 ): Promise<void> {
-  const profile = getProfile(phone);
+  const profile = await getProfile(phone);
   const { error } = await supabase.from("messages").insert({
     phone_number: phone,
     child_name: profile.name,
@@ -94,7 +94,7 @@ async function logMessage(
   if (error) console.error("Supabase log error:", error.message);
 }
 
-// ── Student profiles ──────────────────────────────────────────────────────────
+// ── Student profiles (Supabase-backed) ───────────────────────────────────────
 
 interface StudentProfile {
   name: string;
@@ -106,45 +106,52 @@ interface StudentProfile {
   tone: string;
 }
 
-// Phone numbers are stored without the leading '+' (as received from WhatsApp)
-const PROFILES: Record<string, StudentProfile> = {
-  "972524977815": {
-    name: "Eitan",
-    age: 13,
-    grade: "8th grade",
-    stream: "Hebrew secular",
-    subjects: ["maths", "history", "English", "Tanakh", "science"],
-    language: "Hebrew and English mix — match whichever language Eitan writes in",
-    tone: "peer-like and encouraging, like a cool older sibling who is good at school",
-  },
-  "972542279226": {
-    name: "Gil",
-    age: 10,
-    grade: "5th grade (כיתה ה)",
-    stream: "Hebrew secular",
-    subjects: ["maths (fractions, multiplication, basic geometry)", "Hebrew language", "English basics", "science", "Tanakh basics"],
-    language: "Hebrew — write almost entirely in Hebrew. Use only very simple English words when Gil writes in English. Short sentences always.",
-    tone: "very warm, playful, and encouraging — like a favourite teacher who makes learning feel fun and safe. Use lots of praise and excitement ('יופי!', 'כל הכבוד!', 'איזה חכמה!'). Never use complicated words. Never make her feel like she got something wrong — always reframe mistakes as a step forward. She is 10 years old: keep everything simple, concrete, and friendly. One small question at a time. Never intimidating.",
-  },
-  "972504862999": {
-    name: "Yonathan",
-    age: 17,
-    grade: "11th/12th grade (Bagrut)",
-    stream: "Hebrew secular",
-    subjects: ["maths", "physics", "chemistry", "English literature", "history", "Hebrew literature"],
-    language: "Hebrew and English — match whichever language Yonathan writes in",
-    tone: "academic and peer-like — treat him as a serious student under real Bagrut exam pressure. He is preparing for high-stakes exams. Be efficient, precise, and respect his time. When he is stuck on a maths or science problem, guide him step by step through the reasoning without giving the answer — help him reach it himself. Acknowledge exam stress when it shows, but keep the focus on building genuine understanding, not just exam technique.",
-  },
-};
-
 const DEFAULT_PROFILE: StudentProfile = {
   name: "Student",
   language: "English",
   tone: "professional and supportive",
 };
 
-function getProfile(phone: string): StudentProfile {
-  return PROFILES[phone] ?? DEFAULT_PROFILE;
+// In-memory cache so we don't hit Supabase on every message
+let _profileCache: Record<string, StudentProfile> | null = null;
+let _profileCacheExpiry = 0;
+const PROFILE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+async function getAllProfiles(): Promise<Record<string, StudentProfile>> {
+  const now = Date.now();
+  if (_profileCache && now < _profileCacheExpiry) return _profileCache;
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("phone_number, name, age, grade, stream, subjects, language, tone")
+    .eq("active", true);
+
+  if (error || !data) {
+    console.error("Failed to load profiles:", error?.message);
+    return _profileCache ?? {}; // fall back to stale cache or empty
+  }
+
+  const map: Record<string, StudentProfile> = {};
+  for (const row of data) {
+    map[row.phone_number] = {
+      name: row.name,
+      age: row.age ?? undefined,
+      grade: row.grade ?? undefined,
+      stream: row.stream ?? undefined,
+      subjects: row.subjects ?? undefined,
+      language: row.language,
+      tone: row.tone,
+    };
+  }
+
+  _profileCache = map;
+  _profileCacheExpiry = now + PROFILE_CACHE_TTL_MS;
+  return map;
+}
+
+async function getProfile(phone: string): Promise<StudentProfile> {
+  const profiles = await getAllProfiles();
+  return profiles[phone] ?? DEFAULT_PROFILE;
 }
 
 // ── System prompt (dynamic per profile) ──────────────────────────────────────
@@ -335,7 +342,7 @@ export async function POST(req: NextRequest) {
 // ── Anthropic: text (with YouTube tool use) ──────────────────────────────────
 
 async function getClaudeResponse(userPhone: string, userMessage: string): Promise<string> {
-  const profile = getProfile(userPhone);
+  const profile = await getProfile(userPhone);
   const history = await getHistory(userPhone);
   const updatedHistory: Message[] = [...history, { role: "user", content: userMessage }];
 
@@ -408,7 +415,7 @@ async function handleYouTubeLink(
   videoId: string,
   originalMessage: string
 ): Promise<string> {
-  const profile = getProfile(userPhone);
+  const profile = await getProfile(userPhone);
   const history = await getHistory(userPhone);
 
   let userContent: string;
@@ -460,7 +467,7 @@ async function getClaudeImageResponse(
   mediaId: string,
   caption?: string
 ): Promise<string> {
-  const profile = getProfile(userPhone);
+  const profile = await getProfile(userPhone);
   const { base64, mimeType } = await downloadMetaMedia(mediaId);
   const history = await getHistory(userPhone);
 
