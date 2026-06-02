@@ -278,10 +278,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: "ignored" }, { status: 200 });
   }
 
-  const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+  const value = body.entry?.[0]?.changes?.[0]?.value;
+  const message = value?.messages?.[0];
   if (!message) return NextResponse.json({ status: "no_message" }, { status: 200 });
 
+  // Use whichever phone number ID received the message — works for both
+  // the test number and the production Israeli number automatically.
+  const phoneNumberId = value?.metadata?.phone_number_id ?? process.env.META_PHONE_NUMBER_ID!;
   const userPhone = message.from;
+
+  console.log(`Incoming via phoneNumberId=${phoneNumberId} from=${userPhone}`);
 
   if (message.type === "text") {
     const userText = message.text!.body;
@@ -292,13 +298,13 @@ export async function POST(req: NextRequest) {
     if (videoId) {
       waitUntil(
         handleYouTubeLink(userPhone, videoId, userText)
-          .then((reply) => sendWhatsAppMessage(userPhone, reply))
+          .then((reply) => sendWhatsAppMessage(phoneNumberId, userPhone, reply))
           .catch((err) => console.error("Error processing YouTube link:", err))
       );
     } else {
       waitUntil(
         getClaudeResponse(userPhone, userText)
-          .then((reply) => sendWhatsAppMessage(userPhone, reply))
+          .then((reply) => sendWhatsAppMessage(phoneNumberId, userPhone, reply))
           .catch((err) => console.error("Error processing text:", err))
       );
     }
@@ -308,7 +314,7 @@ export async function POST(req: NextRequest) {
     console.log(`Image from ${userPhone}`);
     waitUntil(
       getClaudeImageResponse(userPhone, mediaId, caption)
-        .then((reply) => sendWhatsAppMessage(userPhone, reply))
+        .then((reply) => sendWhatsAppMessage(phoneNumberId, userPhone, reply))
         .catch((err) => console.error("Error processing image:", err))
     );
   } else if (message.type === "audio") {
@@ -316,7 +322,7 @@ export async function POST(req: NextRequest) {
     console.log(`Voice message from ${userPhone}`);
     waitUntil(
       transcribeAndRespond(userPhone, mediaId)
-        .then((reply) => sendWhatsAppMessage(userPhone, reply))
+        .then((reply) => sendWhatsAppMessage(phoneNumberId, userPhone, reply))
         .catch((err) => console.error("Error processing audio:", err))
     );
   } else {
@@ -652,9 +658,9 @@ async function downloadMetaMedia(mediaId: string): Promise<{ base64: string; mim
 
 // ── Meta WhatsApp send ───────────────────────────────────────────────────────
 
-async function sendWhatsAppMessage(to: string, text: string): Promise<void> {
+async function sendWhatsAppMessage(phoneNumberId: string, to: string, text: string): Promise<void> {
   const res = await fetch(
-    `https://graph.facebook.com/v20.0/${process.env.META_PHONE_NUMBER_ID}/messages`,
+    `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`,
     {
       method: "POST",
       headers: {
@@ -684,7 +690,14 @@ async function sendWhatsAppMessage(to: string, text: string): Promise<void> {
 
 interface WhatsAppPayload {
   object: string;
-  entry: Array<{ changes: Array<{ value: { messages?: WhatsAppMessage[] } }> }>;
+  entry: Array<{
+    changes: Array<{
+      value: {
+        metadata?: { phone_number_id: string; display_phone_number: string };
+        messages?: WhatsAppMessage[];
+      };
+    }>;
+  }>;
 }
 
 interface WhatsAppMessage {
