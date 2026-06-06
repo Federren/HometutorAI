@@ -5,6 +5,7 @@ import { Redis } from "@upstash/redis";
 import { YoutubeTranscript } from "youtube-transcript";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
+import crypto from "crypto";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -35,6 +36,44 @@ async function getHistory(phone: string): Promise<Message[]> {
 
 async function saveHistory(phone: string, messages: Message[]): Promise<void> {
   await redis.set(redisKey(phone), messages.slice(-MAX_MESSAGES), { ex: SESSION_TTL_S });
+}
+
+// ── Security: Meta webhook signature verification ─────────────────────────────
+
+// Meta signs every webhook POST with HMAC-SHA256(appSecret, rawBody), sent in
+// the X-Hub-Signature-256 header as "sha256=<hex>". We verify it over the exact
+// raw bytes so emoji / Hebrew / Arabic don't cause re-encoding mismatches.
+function verifyMetaSignature(bodyBuffer: Buffer, signatureHeader: string | null): boolean {
+  const appSecret = process.env.META_APP_SECRET;
+  if (!appSecret) {
+    console.error("META_APP_SECRET not set — rejecting webhook");
+    return false;
+  }
+  if (!signatureHeader?.startsWith("sha256=")) return false;
+
+  const expected = crypto.createHmac("sha256", appSecret).update(bodyBuffer).digest("hex");
+  const expectedBuf = Buffer.from(expected, "hex");
+  const receivedBuf = Buffer.from(signatureHeader.slice("sha256=".length), "hex");
+
+  if (expectedBuf.length !== receivedBuf.length) return false;
+  return crypto.timingSafeEqual(expectedBuf, receivedBuf);
+}
+
+// ── Security: per-user rate limiting (fixed window via Redis) ──────────────────
+
+const RATE_LIMIT_MAX = 15;        // messages allowed
+const RATE_LIMIT_WINDOW_S = 60;   // per this many seconds
+
+async function checkRateLimit(
+  phone: string
+): Promise<{ allowed: boolean; justExceeded: boolean }> {
+  const key = `rate:${phone}`;
+  const count = await redis.incr(key);
+  if (count === 1) await redis.expire(key, RATE_LIMIT_WINDOW_S);
+  return {
+    allowed: count <= RATE_LIMIT_MAX,
+    justExceeded: count === RATE_LIMIT_MAX + 1,
+  };
 }
 
 // ── Subject detection ─────────────────────────────────────────────────────────
@@ -274,9 +313,18 @@ export async function GET(req: NextRequest) {
 // ── POST: Receive WhatsApp messages ─────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  // Read the exact raw bytes so we can verify Meta's HMAC signature.
+  const bodyBuffer = Buffer.from(await req.arrayBuffer());
+  const signature = req.headers.get("x-hub-signature-256");
+
+  if (!verifyMetaSignature(bodyBuffer, signature)) {
+    console.error("Webhook signature verification failed — rejecting");
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   let body: WhatsAppPayload;
   try {
-    body = await req.json();
+    body = JSON.parse(bodyBuffer.toString("utf8")) as WhatsAppPayload;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -308,15 +356,40 @@ async function processMessage(
   userPhone: string,
   message: WhatsAppMessage
 ): Promise<void> {
-  // Reject unknown numbers
+  // Rate limiting — applies to everyone, before any expensive work.
+  const { allowed, justExceeded } = await checkRateLimit(userPhone);
+  if (!allowed) {
+    console.log(`Rate limit exceeded for ${userPhone}`);
+    if (justExceeded) {
+      // Notify known users once that they are going too fast; drop the rest.
+      const profiles = await getAllProfiles();
+      if (profiles[userPhone]) {
+        await sendWhatsAppMessage(
+          phoneNumberId,
+          userPhone,
+          "You're sending messages very fast — give me a moment to catch up, then try again. 😊"
+        );
+      }
+    }
+    return;
+  }
+
+  // Reject unknown numbers — deduped to one rejection per hour to avoid
+  // an unknown sender triggering a flood of rejection messages.
   const profiles = await getAllProfiles();
   if (!profiles[userPhone]) {
-    console.log(`Unknown number ${userPhone} — sending rejection`);
-    await sendWhatsAppMessage(
-      phoneNumberId,
-      userPhone,
-      "This is a private service. To learn more visit hometutorai.to"
-    );
+    const alreadyRejected = await redis.get(`rejected:${userPhone}`);
+    if (!alreadyRejected) {
+      await redis.set(`rejected:${userPhone}`, "1", { ex: 3600 });
+      await sendWhatsAppMessage(
+        phoneNumberId,
+        userPhone,
+        "This is a private service. To learn more visit hometutorai.to"
+      );
+      console.log(`Unknown number ${userPhone} — rejection sent`);
+    } else {
+      console.log(`Unknown number ${userPhone} — rejection suppressed (deduped)`);
+    }
     return;
   }
 
