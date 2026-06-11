@@ -133,6 +133,58 @@ async function logMessage(
   if (error) console.error("Supabase log error:", error.message);
 }
 
+// ── Content safety (OpenAI moderation → Supabase flag + admin alert) ──────────
+
+// Who receives safety alerts, and which number they come from.
+const ADMIN_PHONE = "972526101313";              // Roi
+const ALERT_PHONE_NUMBER_ID = "1116534344880535"; // production number
+
+// High-concern categories only. Academic "violence" (history/science) is
+// deliberately excluded to avoid false alarms on war/biology topics.
+const SAFETY_CATEGORIES = [
+  "self-harm",
+  "self-harm/intent",
+  "self-harm/instructions",
+  "sexual",
+  "sexual/minors",
+  "harassment/threatening",
+  "hate/threatening",
+];
+
+async function checkSafety(phone: string, text: string): Promise<void> {
+  if (!text || text.trim().length < 2) return;
+  try {
+    const mod = await openai.moderations.create({ model: "omni-moderation-latest", input: text });
+    const result = mod.results?.[0];
+    if (!result) return;
+
+    const cats = result.categories as unknown as Record<string, boolean>;
+    const flagged = SAFETY_CATEGORIES.filter((c) => cats[c]);
+    if (flagged.length === 0) return;
+
+    const profile = await getProfile(phone);
+    console.warn(`SAFETY FLAG — ${profile.name} (${phone}): ${flagged.join(", ")}`);
+
+    // Durable record (works even if WhatsApp alert can't deliver).
+    await supabase.from("safety_flags").insert({
+      phone_number: phone,
+      child_name: profile.name,
+      content: text,
+      categories: flagged.join(", "),
+    });
+
+    // Best-effort real-time alert to the admin.
+    const alert =
+      `⚠️ HomeTutor AI — safety alert\n\n` +
+      `Student: ${profile.name} (${phone})\n` +
+      `Flagged: ${flagged.join(", ")}\n\n` +
+      `Message:\n"${text}"`;
+    await sendWhatsAppMessage(ALERT_PHONE_NUMBER_ID, ADMIN_PHONE, alert);
+  } catch (e) {
+    console.error("Safety check error:", e);
+  }
+}
+
 // ── Student profiles (Supabase-backed) ───────────────────────────────────────
 
 interface StudentProfile {
@@ -436,6 +488,7 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
 
   const subject = detectSubject(userMessage);
   logMessage(userPhone, "user", userMessage, subject).catch(e => console.error("Log error:", e));
+  checkSafety(userPhone, userMessage).catch(e => console.error("Safety error:", e));
 
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
@@ -588,6 +641,7 @@ async function getClaudeImageResponse(
   const imageSubject = detectSubject(caption ?? "");
   logMessage(userPhone, "user", imageLabel, imageSubject).catch(e => console.error("Log error:", e));
   logMessage(userPhone, "assistant", reply, imageSubject).catch(e => console.error("Log error:", e));
+  if (caption) checkSafety(userPhone, caption).catch(e => console.error("Safety error:", e));
 
   return reply;
 }
