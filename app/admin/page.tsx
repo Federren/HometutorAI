@@ -27,7 +27,7 @@ const pill: React.CSSProperties = { display: "inline-block", fontSize: 11, fontW
 export default async function AdminDashboard() {
   const [waitlistRes, profilesRes, msgsRes, consentRes] = await Promise.all([
     supabase.from("waitlist").select("name,email,language,source,created_at").order("created_at", { ascending: false }),
-    supabase.from("profiles").select("name,phone_number,age,grade,active").order("name"),
+    supabase.from("profiles").select("name,phone_number,age,grade,active,role").order("name"),
     supabase.from("messages").select("child_name,created_at"),
     supabase.from("parental_consent").select("child_name,child_age,child_grade,parent_name,parent_phone,parent_email,language,signed_name,signed_at").order("signed_at", { ascending: false }),
   ]);
@@ -87,11 +87,11 @@ export default async function AdminDashboard() {
           <AddStudent />
         </section>
 
-        {/* Invite an advisor */}
+        {/* Invite an advisor / teacher / tester */}
         <section style={card}>
-          <h2 style={h2}>Invite an advisor</h2>
+          <h2 style={h2}>Invite an advisor, teacher, or tester</h2>
           <p style={{ fontSize: 13, color: "#7A7168", margin: "0 0 12px" }}>
-            Adds an advisor profile (student experience by default, can ask to see behind the curtain) and sends a WhatsApp invite.
+            Same experience for all three (student view, can peek behind the curtain) — teachers also get an educator-focused nudge. Sends a WhatsApp invite.
           </p>
           <InviteAdvisor />
         </section>
@@ -156,13 +156,16 @@ export default async function AdminDashboard() {
           <h2 style={h2}>Students &amp; activity</h2>
           <div style={{ overflowX: "auto" }}>
             <table style={table}>
-              <thead><tr><th style={th}>Name</th><th style={th}>Phone</th><th style={th}>Age</th><th style={th}>Grade</th><th style={th}>Messages</th><th style={th}>Last active</th><th style={th}>Status</th></tr></thead>
+              <thead><tr><th style={th}>Name</th><th style={th}>Role</th><th style={th}>Phone</th><th style={th}>Age</th><th style={th}>Grade</th><th style={th}>Messages</th><th style={th}>Last active</th><th style={th}>Status</th></tr></thead>
               <tbody>
                 {profiles.map((p, i) => {
                   const a = activity.get(p.name);
+                  const role = (p.role as string) || "student";
+                  const roleColor = role === "teacher" ? "#6197B0" : role === "advisor" ? "#C8922A" : role === "tester" ? "#7A7168" : "#1B3D2F";
                   return (
                     <tr key={i}>
                       <td style={td}>{p.name}</td>
+                      <td style={td}><span style={{ ...pill, background: "#F2EEE6", color: roleColor }}>{role}</span></td>
                       <td style={td}>{p.phone_number}</td>
                       <td style={td}>{p.age ?? "—"}</td>
                       <td style={td}>{p.grade ?? "—"}</td>
