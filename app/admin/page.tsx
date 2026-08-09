@@ -24,14 +24,16 @@ const td: React.CSSProperties = { padding: "9px 10px", borderBottom: "1px solid 
 const pill: React.CSSProperties = { display: "inline-block", fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999 };
 
 export default async function AdminDashboard() {
-  const [waitlistRes, profilesRes, msgsRes] = await Promise.all([
+  const [waitlistRes, profilesRes, msgsRes, consentRes] = await Promise.all([
     supabase.from("waitlist").select("name,email,language,source,created_at").order("created_at", { ascending: false }),
     supabase.from("profiles").select("name,phone_number,age,grade,active").order("name"),
     supabase.from("messages").select("child_name,created_at"),
+    supabase.from("parental_consent").select("child_name,child_age,child_grade,parent_name,parent_phone,parent_email,language,signed_name,signed_at").order("signed_at", { ascending: false }),
   ]);
 
   const waitlist = waitlistRes.data ?? [];
   const profiles = profilesRes.data ?? [];
+  const consents = consentRes.error ? null : consentRes.data ?? [];
 
   // Aggregate activity per student from the message log.
   const activity = new Map<string, { count: number; last: string }>();
@@ -64,6 +66,7 @@ export default async function AdminDashboard() {
         <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
           {[
             { label: "Waitlist signups", value: waitlist.length },
+            { label: "Consents signed", value: consents ? consents.length : "—" },
             { label: "Students", value: profiles.filter((p) => p.active).length },
             { label: "Safety flags", value: flags ? flags.length : "—" },
           ].map((s) => (
@@ -99,6 +102,37 @@ export default async function AdminDashboard() {
                       <td style={td}>{w.email}</td>
                       <td style={td}>{(w.language || "en").toUpperCase()}</td>
                       <td style={td}>{fmt(w.created_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/* Consent submissions */}
+        <section style={card}>
+          <h2 style={h2}>Consent submissions</h2>
+          {consents === null ? (
+            <div style={{ fontSize: 13, color: "#9a7415", background: "#FBF3DD", padding: "10px 12px", borderRadius: 8 }}>
+              The <code>parental_consent</code> table isn&apos;t set up yet.
+            </div>
+          ) : consents.length === 0 ? (
+            <div style={{ fontSize: 13, color: "#7A7168" }}>No consents signed yet.</div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={table}>
+                <thead><tr><th style={th}>Signed</th><th style={th}>Child</th><th style={th}>Age/Grade</th><th style={th}>Parent</th><th style={th}>Phone</th><th style={th}>Email</th><th style={th}>Signature</th></tr></thead>
+                <tbody>
+                  {consents.map((c, i) => (
+                    <tr key={i}>
+                      <td style={td}>{fmt(c.signed_at)}</td>
+                      <td style={td}>{c.child_name}</td>
+                      <td style={td}>{[c.child_age, c.child_grade].filter(Boolean).join(" / ") || "—"}</td>
+                      <td style={td}>{c.parent_name}</td>
+                      <td style={td}>{c.parent_phone}</td>
+                      <td style={td}>{c.parent_email || "—"}</td>
+                      <td style={{ ...td, fontStyle: "italic", fontFamily: "Georgia, serif" }}>{c.signed_name || "—"}</td>
                     </tr>
                   ))}
                 </tbody>
