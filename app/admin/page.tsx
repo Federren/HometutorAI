@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import LogoutButton from "./LogoutButton";
 import InviteAdvisor from "./InviteAdvisor";
 import AddStudent from "./AddStudent";
+import EnrollButton from "./EnrollButton";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -31,7 +32,7 @@ export default async function AdminDashboard() {
     supabase.from("waitlist").select("name,email,language,source,created_at").order("created_at", { ascending: false }),
     supabase.from("profiles").select("name,phone_number,age,grade,active,role").order("name"),
     supabase.from("messages").select("child_name,created_at"),
-    supabase.from("parental_consent").select("child_name,child_age,child_grade,parent_name,parent_phone,parent_email,language,signed_name,signed_at").order("signed_at", { ascending: false }),
+    supabase.from("parental_consent").select("id,child_name,child_age,child_grade,child_whatsapp,parent_name,parent_phone,parent_email,language,signed_name,signed_at,enrolled_at").order("signed_at", { ascending: false }),
   ]);
 
   const waitlist = waitlistRes.data ?? [];
@@ -134,17 +135,18 @@ export default async function AdminDashboard() {
           ) : (
             <div style={{ overflowX: "auto" }}>
               <table style={table}>
-                <thead><tr><th style={th}>Signed</th><th style={th}>Child</th><th style={th}>Age/Grade</th><th style={th}>Parent</th><th style={th}>Phone</th><th style={th}>Email</th><th style={th}>Signature</th></tr></thead>
+                <thead><tr><th style={th}>Signed</th><th style={th}>Child</th><th style={th}>Age/Grade</th><th style={th}>Child WhatsApp</th><th style={th}>Parent</th><th style={th}>Parent phone</th><th style={th}>Signature</th><th style={th}>Enroll</th></tr></thead>
                 <tbody>
-                  {consents.map((c, i) => (
-                    <tr key={i}>
+                  {consents.map((c) => (
+                    <tr key={c.id as string}>
                       <td style={td}>{fmt(c.signed_at)}</td>
                       <td style={td}>{c.child_name}</td>
                       <td style={td}>{[c.child_age, c.child_grade].filter(Boolean).join(" / ") || "—"}</td>
+                      <td style={td}>{c.child_whatsapp || <span style={{ color: "#B7A99A" }}>—</span>}</td>
                       <td style={td}>{c.parent_name}</td>
                       <td style={td}>{c.parent_phone}</td>
-                      <td style={td}>{c.parent_email || "—"}</td>
                       <td style={{ ...td, fontStyle: "italic", fontFamily: "Georgia, serif" }}>{c.signed_name || "—"}</td>
+                      <td style={td}><EnrollButton consentId={c.id as string} enrolled={!!c.enrolled_at} hasNumber={!!c.child_whatsapp} /></td>
                     </tr>
                   ))}
                 </tbody>

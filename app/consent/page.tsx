@@ -12,7 +12,7 @@ type Lang = "en" | "he" | "ar";
 const T: Record<Lang, {
   dir: "ltr" | "rtl";
   title: string; intro: string;
-  detailsH: string; childName: string; childAge: string; childGrade: string;
+  detailsH: string; childName: string; childAge: string; childGrade: string; childWhatsapp: string;
   parentName: string; parentPhone: string; parentEmail: string;
   howH: string; how: string[];
   dataH: string; data: string[];
@@ -28,7 +28,8 @@ const T: Record<Lang, {
     intro: "HomeTutor AI is a private WhatsApp-based tutoring assistant for your child, currently in pilot. This form confirms your consent for your child to use the service and explains how their information is used.",
     detailsH: "Child & Parent Details",
     childName: "Child's full name", childAge: "Child's age", childGrade: "Child's grade",
-    parentName: "Parent / guardian full name", parentPhone: "Phone number (WhatsApp)", parentEmail: "Email address",
+    childWhatsapp: "Child's WhatsApp number (the number they'll use the tutor from)",
+    parentName: "Parent / guardian full name", parentPhone: "Parent's phone (WhatsApp)", parentEmail: "Email address",
     howH: "How HomeTutor AI Works",
     how: [
       "Your child messages an AI tutor on WhatsApp with homework questions — by text, voice note, or photo.",
@@ -69,7 +70,8 @@ const T: Record<Lang, {
     intro: "HomeTutor AI הינו עוזר הוראה פרטי בוואטסאפ עבור ילדך, הנמצא כעת בפיילוט. טופס זה מאשר את הסכמתך לשימוש ילדך בשירות ומסביר כיצד נעשה שימוש במידע שלו/ה.",
     detailsH: "פרטי הילד/ה וההורה",
     childName: "שם מלא של הילד/ה", childAge: "גיל הילד/ה", childGrade: "כיתה",
-    parentName: "שם מלא של ההורה / האפוטרופוס", parentPhone: "מספר טלפון (וואטסאפ)", parentEmail: "כתובת אימייל",
+    childWhatsapp: "מספר הוואטסאפ של הילד/ה (המספר שממנו ישתמש/תשתמש במורה)",
+    parentName: "שם מלא של ההורה / האפוטרופוס", parentPhone: "טלפון של ההורה (וואטסאפ)", parentEmail: "כתובת אימייל",
     howH: "כיצד HomeTutor AI עובד",
     how: [
       "ילדך שולח/ת הודעות למורה AI בוואטסאפ עם שאלות שיעורי בית — בטקסט, הודעה קולית, או תצלום.",
@@ -110,7 +112,8 @@ const T: Record<Lang, {
     intro: "HomeTutor AI هو مساعد تعليمي خاص عبر واتساب لطفلك، وهو حالياً في مرحلة تجريبية. يؤكد هذا النموذج موافقتك على استخدام طفلك للخدمة ويوضح كيفية استخدام معلوماته.",
     detailsH: "بيانات الطفل وولي الأمر",
     childName: "اسم الطفل الكامل", childAge: "عمر الطفل", childGrade: "الصف الدراسي",
-    parentName: "اسم ولي الأمر الكامل", parentPhone: "رقم الهاتف (واتساب)", parentEmail: "البريد الإلكتروني",
+    childWhatsapp: "رقم واتساب الطفل (الرقم الذي سيستخدمه للتواصل مع المعلم)",
+    parentName: "اسم ولي الأمر الكامل", parentPhone: "هاتف ولي الأمر (واتساب)", parentEmail: "البريد الإلكتروني",
     howH: "كيف يعمل HomeTutor AI",
     how: [
       "يرسل طفلك رسائل إلى معلم ذكاء اصطناعي عبر واتساب لطرح أسئلة الواجبات — نصاً أو رسالة صوتية أو صورة.",
@@ -156,7 +159,7 @@ export default function ConsentPage() {
   const t = T[lang];
   const rtl = t.dir === "rtl";
 
-  const [f, setF] = useState({ childName: "", childAge: "", childGrade: "", parentName: "", parentPhone: "", parentEmail: "" });
+  const [f, setF] = useState({ childName: "", childAge: "", childGrade: "", childWhatsapp: "", parentName: "", parentPhone: "", parentEmail: "" });
   const [c, setC] = useState([false, false, false]);
   const [signature, setSignature] = useState("");
   const [err, setErr] = useState("");
@@ -170,7 +173,7 @@ export default function ConsentPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr("");
-    const allFilled = f.childName && f.parentName && f.parentPhone && signature.trim();
+    const allFilled = f.childName && f.childWhatsapp && f.parentName && f.parentPhone && signature.trim();
     if (!allFilled || !c[0] || !c[1] || !c[2]) { setErr(t.required); return; }
     setBusy(true);
     try {
@@ -236,6 +239,8 @@ export default function ConsentPage() {
                   <input style={input} value={f.childGrade} onChange={(e) => set("childGrade", e.target.value)} />
                 </div>
               </div>
+              <label style={label}>{t.childWhatsapp}</label>
+              <input style={input} value={f.childWhatsapp} onChange={(e) => set("childWhatsapp", e.target.value)} placeholder="+972…" />
               <label style={label}>{t.parentName}</label>
               <input style={input} value={f.parentName} onChange={(e) => set("parentName", e.target.value)} />
               <label style={label}>{t.parentPhone}</label>
