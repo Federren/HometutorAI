@@ -189,11 +189,12 @@ export default function ConsentPage() {
     }
   }
 
-  const label: React.CSSProperties = { display: "block", fontSize: 13, fontWeight: 600, color: green, marginBottom: 6, marginTop: 14 };
-  const input: React.CSSProperties = { width: "100%", padding: "11px 13px", fontSize: 15, border: `1.5px solid ${border}`, borderRadius: 10, outline: "none", boxSizing: "border-box", background: "white" };
+  const ta: "right" | "left" = rtl ? "right" : "left";
+  const label: React.CSSProperties = { display: "block", fontSize: 13, fontWeight: 600, color: green, marginBottom: 6, marginTop: 14, textAlign: ta };
+  const input: React.CSSProperties = { width: "100%", padding: "11px 13px", fontSize: 15, border: `1.5px solid ${border}`, borderRadius: 10, outline: "none", boxSizing: "border-box", background: "white", direction: t.dir, textAlign: ta };
   const section: React.CSSProperties = { marginTop: 26 };
-  const sh: React.CSSProperties = { fontSize: 17, fontWeight: 700, color: green, margin: "0 0 10px" };
-  const bullet: React.CSSProperties = { fontSize: 14, color: "#3a352e", lineHeight: 1.7, marginBottom: 8, paddingInlineStart: 4 };
+  const sh: React.CSSProperties = { fontSize: 17, fontWeight: 700, color: green, margin: "0 0 10px", textAlign: ta };
+  const bullet: React.CSSProperties = { fontSize: 14, color: "#3a352e", lineHeight: 1.7, marginBottom: 8, paddingInlineStart: 4, textAlign: ta };
 
   return (
     <main dir={t.dir} style={{ minHeight: "100vh", background: cream, fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", color: "#151210", textAlign: rtl ? "right" : "left" }}>
