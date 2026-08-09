@@ -517,20 +517,11 @@ footer p{font-size:0.8rem;}
         data-ar="طفلك قادر على الفهم أكثر بكثير مما تظهره درجاته. كن من أوائل المنضمين."
       >Your child is capable of understanding more than their grade shows. Be among the first to join.</span>
     </p>
-    <form class="waitlist-form" onsubmit="handleSubmit(event,'waitlist')">
-      <div class="waitlist-row">
-        <input type="text" class="f-input" id="w-first" required placeholder="Parent's first name" data-placeholder-en="Parent's first name" data-placeholder-he="שם פרטי (הורה)" data-placeholder-ar="الاسم الأول لولي الأمر">
-        <input type="text" class="f-input" id="w-last" required placeholder="Parent's last name" data-placeholder-en="Parent's last name" data-placeholder-he="שם משפחה (הורה)" data-placeholder-ar="اسم عائلة ولي الأمر">
-        <input type="email" class="f-input" id="w-email" required
-          placeholder="Email address"
-          data-placeholder-en="Email address"
-          data-placeholder-he="כתובת האימייל"
-          data-placeholder-ar="عنوان البريد الإلكتروني">
-        <button type="submit" class="f-btn">
-          <span class="t" data-en="Join Today" data-he="הצטרפו היום" data-ar="انضم اليوم">Join Today</span>
-        </button>
-      </div>
-    </form>
+    <div style="text-align:center;">
+      <button type="button" class="f-btn" onclick="var el=document.getElementById('hero-first');el.scrollIntoView({behavior:'smooth',block:'center'});setTimeout(function(){try{el.focus();}catch(e){}},600);">
+        <span class="t" data-en="Join Today" data-he="הצטרפו היום" data-ar="انضم اليوم">Join Today</span>
+      </button>
+    </div>
     <p class="success" id="w-success">
       <span class="t"
         data-en="✓ You're on the list. We'll be in touch soon."
