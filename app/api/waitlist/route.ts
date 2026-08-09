@@ -40,7 +40,7 @@ async function notifyAdmin(name: string, email: string, language: string) {
 }
 
 export async function POST(req: NextRequest) {
-  let body: { name?: string; email?: string; language?: string };
+  let body: { firstName?: string; lastName?: string; email?: string; language?: string };
   try {
     body = await req.json();
   } catch {
@@ -48,15 +48,21 @@ export async function POST(req: NextRequest) {
   }
 
   const email = (body.email ?? "").trim().toLowerCase();
-  const name = (body.name ?? "").trim();
+  const firstName = (body.firstName ?? "").trim();
+  const lastName = (body.lastName ?? "").trim();
   const language = ((body.language ?? "").trim().slice(0, 5)) || "en";
 
+  if (!firstName || !lastName) {
+    return NextResponse.json({ error: "First and last name are required." }, { status: 400 });
+  }
   if (!EMAIL_RE.test(email) || email.length > 254) {
     return NextResponse.json({ error: "A valid email is required." }, { status: 400 });
   }
 
   const { error } = await supabase.from("waitlist").insert({
-    name: name || null,
+    first_name: firstName,
+    last_name: lastName,
+    name: `${firstName} ${lastName}`,
     email,
     language,
     source: "holding_page",
@@ -69,6 +75,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Could not save your signup. Please try again." }, { status: 500 });
   }
 
-  waitUntil(notifyAdmin(name, email, language));
+  waitUntil(notifyAdmin(`${firstName} ${lastName}`, email, language));
   return NextResponse.json({ success: true });
 }

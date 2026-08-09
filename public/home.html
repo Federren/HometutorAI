@@ -328,6 +328,10 @@ footer p{font-size:0.8rem;}
     </p>
     <form class="hero-form fade-up delay-3" onsubmit="handleSubmit(event,'hero')">
       <div class="form-row">
+        <input type="text" class="f-input" id="hero-first" required placeholder="Parent's first name" data-placeholder-en="Parent's first name" data-placeholder-he="שם פרטי (הורה)" data-placeholder-ar="الاسم الأول لولي الأمر">
+        <input type="text" class="f-input" id="hero-last" required placeholder="Parent's last name" data-placeholder-en="Parent's last name" data-placeholder-he="שם משפחה (הורה)" data-placeholder-ar="اسم عائلة ولي الأمر">
+      </div>
+      <div class="form-row">
         <input type="email" class="f-input" id="hero-email" required
           placeholder="Your email address"
           data-placeholder-en="Your email address"
@@ -515,11 +519,8 @@ footer p{font-size:0.8rem;}
     </p>
     <form class="waitlist-form" onsubmit="handleSubmit(event,'waitlist')">
       <div class="waitlist-row">
-        <input type="text" class="f-input" id="w-name" required
-          placeholder="Your name"
-          data-placeholder-en="Your name"
-          data-placeholder-he="שמך"
-          data-placeholder-ar="اسمك">
+        <input type="text" class="f-input" id="w-first" required placeholder="Parent's first name" data-placeholder-en="Parent's first name" data-placeholder-he="שם פרטי (הורה)" data-placeholder-ar="الاسم الأول لولي الأمر">
+        <input type="text" class="f-input" id="w-last" required placeholder="Parent's last name" data-placeholder-en="Parent's last name" data-placeholder-he="שם משפחה (הורה)" data-placeholder-ar="اسم عائلة ولي الأمر">
         <input type="email" class="f-input" id="w-email" required
           placeholder="Email address"
           data-placeholder-en="Email address"
@@ -617,7 +618,8 @@ async function handleSubmit(e, formId) {
   e.preventDefault();
   var isHero = formId === 'hero';
   var email = (document.getElementById(isHero ? 'hero-email' : 'w-email').value || '').trim();
-  var name = isHero ? '' : (document.getElementById('w-name').value || '').trim();
+  var first = (document.getElementById(isHero ? 'hero-first' : 'w-first').value || '').trim();
+  var last = (document.getElementById(isHero ? 'hero-last' : 'w-last').value || '').trim();
   var form = e.target;
   var btn = form.querySelector('button');
   var orig = btn ? btn.textContent : '';
@@ -626,7 +628,7 @@ async function handleSubmit(e, formId) {
     var res = await fetch('/api/waitlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name, email: email, language: currentLang })
+      body: JSON.stringify({ firstName: first, lastName: last, email: email, language: currentLang })
     });
     if (!res.ok) throw new Error('bad status');
     if (isHero) {
