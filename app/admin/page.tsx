@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import LogoutButton from "./LogoutButton";
+import InviteAdvisor from "./InviteAdvisor";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +73,15 @@ export default async function AdminDashboard() {
             </div>
           ))}
         </div>
+
+        {/* Invite an advisor */}
+        <section style={card}>
+          <h2 style={h2}>Invite an advisor</h2>
+          <p style={{ fontSize: 13, color: "#7A7168", margin: "0 0 12px" }}>
+            Adds an advisor profile (student experience by default, can ask to see behind the curtain) and sends a WhatsApp invite.
+          </p>
+          <InviteAdvisor />
+        </section>
 
         {/* Waitlist */}
         <section style={card}>
