@@ -613,16 +613,42 @@ function setLang(lang) {
   event.target.classList.add('active');
 }
 
-function handleSubmit(e, formId) {
+async function handleSubmit(e, formId) {
   e.preventDefault();
-  if (formId === 'hero') {
-    document.querySelector('.hero-form').innerHTML = 
-      '<p style="color:var(--green);font-weight:700;font-size:1rem">✓ ' + 
-      (currentLang === 'he' ? 'אתה/את ברשימה!' : currentLang === 'ar' ? 'أنت في القائمة!' : "You're on the list!") + 
-      '</p>';
-  } else {
-    document.querySelector('.waitlist-form').style.display = 'none';
-    document.getElementById('w-success').style.display = 'block';
+  var isHero = formId === 'hero';
+  var email = (document.getElementById(isHero ? 'hero-email' : 'w-email').value || '').trim();
+  var name = isHero ? '' : (document.getElementById('w-name').value || '').trim();
+  var form = e.target;
+  var btn = form.querySelector('button');
+  var orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '\u2026'; }
+  try {
+    var res = await fetch('/api/waitlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, email: email, language: currentLang })
+    });
+    if (!res.ok) throw new Error('bad status');
+    if (isHero) {
+      document.querySelector('.hero-form').innerHTML =
+        '<p style="color:var(--green);font-weight:700;font-size:1rem">\u2713 ' +
+        (currentLang === 'he' ? 'אתה/את ברשימה!' : currentLang === 'ar' ? 'أنت في القائمة!' : "You're on the list!") +
+        '</p>';
+    } else {
+      document.querySelector('.waitlist-form').style.display = 'none';
+      document.getElementById('w-success').style.display = 'block';
+    }
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+    var msg = (currentLang === 'he' ? 'משהו השתבש, נסו שוב.' : currentLang === 'ar' ? 'حدث خطأ ما، حاول مرة أخرى.' : 'Something went wrong. Please try again.');
+    var errEl = form.querySelector('.form-error');
+    if (!errEl) {
+      errEl = document.createElement('p');
+      errEl.className = 'form-error';
+      errEl.setAttribute('style', 'color:#b3261e;font-size:0.85rem;margin-top:8px');
+      form.appendChild(errEl);
+    }
+    errEl.textContent = msg;
   }
 }
 
