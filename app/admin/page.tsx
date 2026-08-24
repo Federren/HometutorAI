@@ -95,7 +95,7 @@ export default async function AdminDashboard() {
         <section style={card}>
           <h2 style={h2}>Invite an advisor, teacher, or tester</h2>
           <p style={{ fontSize: 13, color: "#7A7168", margin: "0 0 12px" }}>
-            Same experience for all three (student view, can peek behind the curtain) — teachers also get an educator-focused nudge. Sends a WhatsApp invite.
+            Same experience for all three (student view, can peek behind the curtain) — teachers also get an educator-focused nudge. Add an email and they get an invitation with how to start.
           </p>
           <InviteAdvisor />
         </section>

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { waitUntil } from "@vercel/functions";
+import { sendEmail } from "@/lib/email";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -7,9 +9,29 @@ const supabase = createClient(
 );
 
 const ALERT_PHONE_NUMBER_ID = "1116534344880535";
+const BOT_NUMBER = "+972 55-935-5411";
 
 type Role = "advisor" | "teacher" | "tester";
 const ROLES: Role[] = ["advisor", "teacher", "tester"];
+
+// Reliable invitation email (WhatsApp can't reach a new contact first).
+function inviteEmail(role: Role, name: string): { subject: string; html: string } {
+  const label = role === "teacher" ? "teacher" : role === "tester" ? "tester" : "advisor";
+  const teacherLine = role === "teacher"
+    ? `<p>As a teacher, feel free to probe how it handles a struggling student, why it withholds answers, and the soundness of its explanations — your critique is exactly what we want.</p>`
+    : "";
+  return {
+    subject: "You're invited to try HomeTutor AI",
+    html: `<div style="font-family:system-ui,Arial,sans-serif;font-size:15px;color:#1a1a1a;line-height:1.7;max-width:520px">
+      <p>Hi ${name},</p>
+      <p>You've been invited to try <b>HomeTutor AI</b> as ${label === "advisor" ? "an" : "a"} ${label}. It's a WhatsApp tutor that guides students to answers with questions — never just handing them over.</p>
+      <p><b>To start:</b> open WhatsApp and send a "hi" to <span dir="ltr">${BOT_NUMBER}</span>. It'll greet you, and you can try it exactly as a student would. Any time, you can also ask it directly how it works and it'll explain what's happening under the hood.</p>
+      ${teacherLine}
+      <p>Any questions, just reply to this email or reach us at hello@hometutorai.io.</p>
+      <p style="color:#1B3D2F;font-weight:600">The HomeTutor AI team</p>
+    </div>`,
+  };
+}
 
 function roleNoun(role: Role): string {
   return role === "teacher" ? "a teacher evaluating HomeTutor AI"
@@ -51,7 +73,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let b: { name?: string; phone?: string; role?: string };
+  let b: { name?: string; phone?: string; role?: string; email?: string };
   try {
     b = await req.json();
   } catch {
@@ -60,6 +82,7 @@ export async function POST(req: NextRequest) {
 
   const name = (b.name ?? "").trim();
   const phone = (b.phone ?? "").replace(/[^0-9]/g, "");
+  const email = (b.email ?? "").trim() || null;
   const role: Role = ROLES.includes(b.role as Role) ? (b.role as Role) : "advisor";
   if (!name || phone.length < 8) {
     return NextResponse.json({ error: "Name and a valid phone number (with country code) are required." }, { status: 400 });
@@ -69,6 +92,7 @@ export async function POST(req: NextRequest) {
     phone_number: phone,
     name,
     role,
+    email,
     language: "English",
     tone: toneFor(role, name),
     active: true,
@@ -94,5 +118,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ success: true, sent, role });
+  // The reliable notification: email the invitee (WhatsApp can't start a chat).
+  let emailed = false;
+  if (email) {
+    const e = inviteEmail(role, name);
+    waitUntil(sendEmail(email, e.subject, e.html));
+    emailed = true;
+  }
+
+  return NextResponse.json({ success: true, sent, emailed, role });
 }

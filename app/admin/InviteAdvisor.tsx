@@ -8,6 +8,7 @@ export default function InviteAdvisor() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [role, setRole] = useState("advisor");
+  const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -19,18 +20,19 @@ export default function InviteAdvisor() {
       const res = await fetch("/api/admin/invite-advisor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, phone, role }),
+        body: JSON.stringify({ name, phone, role, email }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "Failed");
       setMsg({
         ok: true,
-        text: j.sent
-          ? `${name} added as ${role}. Invite sent (may not arrive until they message the bot first).`
-          : `${name} added as ${role}. Ask them to message +972 55-935-5411 to start.`,
+        text: j.emailed
+          ? `${name} added as ${role}. Invitation email sent to ${email}.`
+          : `${name} added as ${role}. No email given — ask them to message +972 55-935-5411 to start.`,
       });
       setName("");
       setPhone("");
+      setEmail("");
       // Refresh the dashboard so the new profile shows in the list.
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
@@ -51,6 +53,7 @@ export default function InviteAdvisor() {
       </select>
       <input style={{ ...input, flex: "1 1 150px" }} placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required />
       <input style={{ ...input, flex: "1 1 180px" }} placeholder="Phone incl. country code (e.g. 447…)" value={phone} onChange={(e) => setPhone(e.target.value)} required />
+      <input type="email" style={{ ...input, flex: "1 1 180px" }} placeholder="Email (sends the invite)" value={email} onChange={(e) => setEmail(e.target.value)} />
       <button type="submit" disabled={busy} style={{ padding: "10px 18px", fontSize: 14, fontWeight: 600, color: "white", background: busy ? "#7A9A8B" : green, border: "none", borderRadius: 9, cursor: busy ? "default" : "pointer" }}>
         {busy ? "Inviting…" : "Send invite"}
       </button>
