@@ -59,7 +59,7 @@ const T: Record<Lang, {
     sigH: "Signature",
     sigLabel: "Type your full name to sign", dateLabel: "Date",
     submit: "Submit consent", sending: "Submitting…",
-    success: "Thank you. Your consent has been recorded. We'll be in touch on WhatsApp to get your child started.",
+    success: "Thank you — your sign-up has been received. We'll email you shortly to activate your child's tutor.",
     required: "Please complete all fields and tick all three consent boxes.",
     privacy: "Privacy Policy",
     footer: "HomeTutor AI · Private Pilot · hello@hometutorai.io",
@@ -101,7 +101,7 @@ const T: Record<Lang, {
     sigH: "חתימה",
     sigLabel: "הקלד/י את שמך המלא לחתימה", dateLabel: "תאריך",
     submit: "שליחת הסכמה", sending: "שולח…",
-    success: "תודה. הסכמתך נרשמה. ניצור קשר בוואטסאפ כדי להתחיל את ילדך.",
+    success: "תודה — ההרשמה התקבלה. נשלח לכם מייל בקרוב כדי להפעיל את המורה של ילדכם.",
     required: "יש למלא את כל השדות ולסמן את שלוש תיבות ההסכמה.",
     privacy: "מדיניות פרטיות",
     footer: "HomeTutor AI · פיילוט פרטי · hello@hometutorai.io",
@@ -143,7 +143,7 @@ const T: Record<Lang, {
     sigH: "التوقيع",
     sigLabel: "اكتب اسمك الكامل للتوقيع", dateLabel: "التاريخ",
     submit: "إرسال الموافقة", sending: "جارٍ الإرسال…",
-    success: "شكراً لك. تم تسجيل موافقتك. سنتواصل معك عبر واتساب لبدء استخدام طفلك للخدمة.",
+    success: "شكراً لك — تم استلام تسجيلك. سنرسل لك بريداً إلكترونياً قريباً لتفعيل معلّم طفلك.",
     required: "يرجى إكمال جميع الحقول ووضع علامة في مربعات الموافقة الثلاثة.",
     privacy: "سياسة الخصوصية",
     footer: "HomeTutor AI · نسخة تجريبية خاصة · hello@hometutorai.io",
@@ -173,7 +173,7 @@ export default function ConsentPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr("");
-    const allFilled = f.childName && f.childWhatsapp && f.parentName && f.parentPhone && signature.trim();
+    const allFilled = f.childName && f.childWhatsapp && f.parentName && f.parentPhone && f.parentEmail && signature.trim();
     if (!allFilled || !c[0] || !c[1] || !c[2]) { setErr(t.required); return; }
     setBusy(true);
     try {

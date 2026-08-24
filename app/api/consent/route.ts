@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
   const child_whatsapp = str(b.childWhatsapp);
 
   // The three explicit consents are mandatory.
-  if (!parent_name || !parent_phone || !child_name || !child_whatsapp || b.consent_use !== true || b.consent_data_understood !== true || b.consent_whatsapp_contact !== true) {
+  if (!parent_name || !parent_phone || !parent_email || !child_name || !child_whatsapp || b.consent_use !== true || b.consent_data_understood !== true || b.consent_whatsapp_contact !== true) {
     return NextResponse.json({ error: "Missing required fields or consent." }, { status: 400 });
   }
 
