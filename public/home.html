@@ -299,7 +299,7 @@ footer p{font-size:0.8rem;}
         <button class="lang-btn" onclick="setLang('he')">עב</button>
         <button class="lang-btn" onclick="setLang('ar')">عر</button>
       </div>
-      <button class="nav-cta" onclick="document.getElementById('waitlist').scrollIntoView({behavior:'smooth'})">
+      <button class="nav-cta" onclick="window.location.href='/consent'">
         <span class="t" data-en="Join Now" data-he="הצטרף/י" data-ar="انضم">Join Now</span>
       </button>
     </div>
@@ -310,7 +310,7 @@ footer p{font-size:0.8rem;}
   <div class="hero-left">
     <div class="hero-eyebrow fade-up">
       <div class="eyebrow-dot"></div>
-      <span class="t" data-en="Early Access" data-he="גישה מוקדמת" data-ar="وصول مبكر">Early Access</span>
+      <span class="t" data-en="Now in pilot" data-he="עכשיו בפיילוט" data-ar="في المرحلة التجريبية الآن">Now in pilot</span>
     </div>
     <h1 class="hero-title fade-up delay-1">
       <span class="t"
@@ -326,29 +326,14 @@ footer p{font-size:0.8rem;}
         data-ar="لا يعطي HomeTutor AI طفلك الإجابة مباشرة. بل يطرح السؤال الذي يساعده على إيجادها بنفسه، حتى يفهم فعلاً ما يتعلمه."
       >HomeTutor AI doesn't hand your child the answer. It asks the question that helps them find it themselves, so what they learn actually stays with them.</span>
     </p>
-    <form class="hero-form fade-up delay-3" onsubmit="handleSubmit(event,'hero')">
-      <div class="form-row">
-        <input type="text" class="f-input" id="hero-first" required placeholder="Parent's first name" data-placeholder-en="Parent's first name" data-placeholder-he="שם פרטי (הורה)" data-placeholder-ar="الاسم الأول لولي الأمر">
-        <input type="text" class="f-input" id="hero-last" required placeholder="Parent's last name" data-placeholder-en="Parent's last name" data-placeholder-he="שם משפחה (הורה)" data-placeholder-ar="اسم عائلة ولي الأمر">
-      </div>
-      <div class="form-row">
-        <input type="email" class="f-input" id="hero-email" required
-          placeholder="Your email address"
-          data-placeholder-en="Your email address"
-          data-placeholder-he="כתובת האימייל שלך"
-          data-placeholder-ar="عنوان بريدك الإلكتروني">
-        <button type="submit" class="f-btn">
-          <span class="t" data-en="Join Now" data-he="הצטרף/י עכשיו" data-ar="انضم الآن">Join Now</span>
-        </button>
-      </div>
+    <div class="hero-form fade-up delay-3">
+      <button type="button" class="f-btn" onclick="window.location.href='/consent'" style="align-self:flex-start;">
+        <span class="t" data-en="Join the pilot" data-he="הצטרפות לפיילוט" data-ar="انضم إلى النسخة التجريبية">Join the pilot</span>
+      </button>
       <p class="form-note">
-        <span class="t"
-          data-en="No app to download. No commitment."
-          data-he="ללא הורדת אפליקציה. ללא התחייבות."
-          data-ar="لا حاجة لتطبيق. بدون التزام."
-        >No app to download. No commitment.</span>
+        <span class="t" data-en="No app to download. No commitment." data-he="ללא הורדת אפליקציה. ללא התחייבות." data-ar="لا حاجة لتطبيق. بدون التزام.">No app to download. No commitment.</span>
       </p>
-    </form>
+    </div>
     <div class="stats-bar fade-up delay-4">
       <div class="stat"><strong>24/7</strong><span class="t" data-en="Always available" data-he="תמיד זמין" data-ar="متاح دائماً">Always available</span></div>
       <div class="stat"><strong class="t" data-en="1 Tutor" data-he="מורה 1" data-ar="1 معلم">1 Tutor</strong><span class="t" data-en="Always with them" data-he="תמיד לצידם" data-ar="دائماً بجانبهم">Always with them</span></div>
@@ -502,7 +487,7 @@ footer p{font-size:0.8rem;}
 
 <section class="waitlist" id="waitlist">
   <div style="max-width:800px;margin:0 auto;">
-    <p class="section-label"><span class="t" data-en="Early Access" data-he="גישה מוקדמת" data-ar="وصول مبكر">Early Access</span></p>
+    <p class="section-label"><span class="t" data-en="Now in pilot" data-he="עכשיו בפיילוט" data-ar="في المرحلة التجريبية الآن">Now in pilot</span></p>
     <h2 class="section-title">
       <span class="t"
         data-en="Be among the <em>first to join.</em>"
@@ -518,8 +503,8 @@ footer p{font-size:0.8rem;}
       >Your child is capable of understanding more than their grade shows. Be among the first to join.</span>
     </p>
     <div style="text-align:center;">
-      <button type="button" class="f-btn" onclick="var el=document.getElementById('hero-first');el.scrollIntoView({behavior:'smooth',block:'center'});setTimeout(function(){try{el.focus();}catch(e){}},600);">
-        <span class="t" data-en="Join Today" data-he="הצטרפו היום" data-ar="انضم اليوم">Join Today</span>
+      <button type="button" class="f-btn" onclick="window.location.href='/consent'">
+        <span class="t" data-en="Join the pilot" data-he="הצטרפות לפיילוט" data-ar="انضم إلى النسخة التجريبية">Join the pilot</span>
       </button>
     </div>
     <p class="success" id="w-success">

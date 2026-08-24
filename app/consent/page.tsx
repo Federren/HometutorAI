@@ -24,7 +24,7 @@ const T: Record<Lang, {
 }> = {
   en: {
     dir: "ltr",
-    title: "Parental Consent",
+    title: "Join the Pilot",
     intro: "HomeTutor AI is a private WhatsApp-based tutoring assistant for your child, currently in pilot. This form confirms your consent for your child to use the service and explains how their information is used.",
     detailsH: "Child & Parent Details",
     childName: "Child's full name", childAge: "Child's age", childGrade: "Child's grade",
@@ -66,7 +66,7 @@ const T: Record<Lang, {
   },
   he: {
     dir: "rtl",
-    title: "הסכמת הורים",
+    title: "הצטרפות לפיילוט",
     intro: "HomeTutor AI הינו עוזר הוראה פרטי בוואטסאפ עבור ילדך, הנמצא כעת בפיילוט. טופס זה מאשר את הסכמתך לשימוש ילדך בשירות ומסביר כיצד נעשה שימוש במידע שלו/ה.",
     detailsH: "פרטי הילד/ה וההורה",
     childName: "שם מלא של הילד/ה", childAge: "גיל הילד/ה", childGrade: "כיתה",
@@ -108,7 +108,7 @@ const T: Record<Lang, {
   },
   ar: {
     dir: "rtl",
-    title: "موافقة الوالدين",
+    title: "الانضمام إلى النسخة التجريبية",
     intro: "HomeTutor AI هو مساعد تعليمي خاص عبر واتساب لطفلك، وهو حالياً في مرحلة تجريبية. يؤكد هذا النموذج موافقتك على استخدام طفلك للخدمة ويوضح كيفية استخدام معلوماته.",
     detailsH: "بيانات الطفل وولي الأمر",
     childName: "اسم الطفل الكامل", childAge: "عمر الطفل", childGrade: "الصف الدراسي",
