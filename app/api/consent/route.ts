@@ -1,32 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { waitUntil } from "@vercel/functions";
+import { sendEmail } from "@/lib/email";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const FROM = "HomeTutor AI <hello@hometutorai.io>";
 const ADMIN_EMAIL = "feder.roi@gmail.com";
-
-async function sendEmail(to: string, subject: string, html: string) {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) {
-    console.warn("RESEND_API_KEY not set — skipping email");
-    return;
-  }
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: FROM, to: [to], subject, html }),
-    });
-    if (!res.ok) console.error("Resend error:", res.status, await res.text());
-  } catch (e) {
-    console.error("Email send failed:", e);
-  }
-}
 
 // Parent confirmation — matched to the language they signed up in.
 function parentEmail(lang: string, parentName: string, childName: string): { subject: string; html: string } {
