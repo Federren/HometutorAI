@@ -3,6 +3,7 @@ import LogoutButton from "./LogoutButton";
 import InviteAdvisor from "./InviteAdvisor";
 import AddStudent from "./AddStudent";
 import EnrollButton from "./EnrollButton";
+import DeleteButton from "./DeleteButton";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -29,8 +30,8 @@ const pill: React.CSSProperties = { display: "inline-block", fontSize: 11, fontW
 
 export default async function AdminDashboard() {
   const [waitlistRes, profilesRes, msgsRes, consentRes] = await Promise.all([
-    supabase.from("waitlist").select("name,email,language,source,created_at").order("created_at", { ascending: false }),
-    supabase.from("profiles").select("name,phone_number,age,grade,active,role").order("name"),
+    supabase.from("waitlist").select("id,name,email,language,source,created_at").order("created_at", { ascending: false }),
+    supabase.from("profiles").select("id,name,phone_number,age,grade,active,role").order("name"),
     supabase.from("messages").select("child_name,created_at"),
     supabase.from("parental_consent").select("id,child_name,child_age,child_grade,child_whatsapp,parent_name,parent_phone,parent_email,language,signed_name,signed_at,enrolled_at").order("signed_at", { ascending: false }),
   ]);
@@ -107,14 +108,15 @@ export default async function AdminDashboard() {
           ) : (
             <div style={{ overflowX: "auto" }}>
               <table style={table}>
-                <thead><tr><th style={th}>Name</th><th style={th}>Email</th><th style={th}>Lang</th><th style={th}>Signed up</th></tr></thead>
+                <thead><tr><th style={th}>Name</th><th style={th}>Email</th><th style={th}>Lang</th><th style={th}>Signed up</th><th style={th}></th></tr></thead>
                 <tbody>
-                  {waitlist.map((w, i) => (
-                    <tr key={i}>
+                  {waitlist.map((w) => (
+                    <tr key={w.id as string}>
                       <td style={td}>{w.name || <span style={{ color: "#B7A99A" }}>—</span>}</td>
                       <td style={td}>{w.email}</td>
                       <td style={td}>{(w.language || "en").toUpperCase()}</td>
                       <td style={td}>{fmt(w.created_at)}</td>
+                      <td style={td}><DeleteButton table="waitlist" id={w.id as string} label={(w.email as string) || "this signup"} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -135,7 +137,7 @@ export default async function AdminDashboard() {
           ) : (
             <div style={{ overflowX: "auto" }}>
               <table style={table}>
-                <thead><tr><th style={th}>Signed</th><th style={th}>Child</th><th style={th}>Age/Grade</th><th style={th}>Child WhatsApp</th><th style={th}>Parent</th><th style={th}>Parent phone</th><th style={th}>Signature</th><th style={th}>Enroll</th></tr></thead>
+                <thead><tr><th style={th}>Signed</th><th style={th}>Child</th><th style={th}>Age/Grade</th><th style={th}>Child WhatsApp</th><th style={th}>Parent</th><th style={th}>Parent phone</th><th style={th}>Signature</th><th style={th}>Enroll</th><th style={th}></th></tr></thead>
                 <tbody>
                   {consents.map((c) => (
                     <tr key={c.id as string}>
@@ -147,6 +149,7 @@ export default async function AdminDashboard() {
                       <td style={td}>{c.parent_phone}</td>
                       <td style={{ ...td, fontStyle: "italic", fontFamily: "Georgia, serif" }}>{c.signed_name || "—"}</td>
                       <td style={td}><EnrollButton consentId={c.id as string} enrolled={!!c.enrolled_at} hasNumber={!!c.child_whatsapp} /></td>
+                      <td style={td}><DeleteButton table="parental_consent" id={c.id as string} label={`${c.child_name}'s consent`} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -160,7 +163,7 @@ export default async function AdminDashboard() {
           <h2 style={h2}>Students &amp; activity</h2>
           <div style={{ overflowX: "auto" }}>
             <table style={table}>
-              <thead><tr><th style={th}>Name</th><th style={th}>Role</th><th style={th}>Phone</th><th style={th}>Age</th><th style={th}>Grade</th><th style={th}>Messages</th><th style={th}>Last active</th><th style={th}>Status</th></tr></thead>
+              <thead><tr><th style={th}>Name</th><th style={th}>Role</th><th style={th}>Phone</th><th style={th}>Age</th><th style={th}>Grade</th><th style={th}>Messages</th><th style={th}>Last active</th><th style={th}>Status</th><th style={th}></th></tr></thead>
               <tbody>
                 {profiles.map((p, i) => {
                   const a = activity.get(p.name);
@@ -180,6 +183,7 @@ export default async function AdminDashboard() {
                           {p.active ? "active" : "inactive"}
                         </span>
                       </td>
+                      <td style={td}><DeleteButton table="profiles" id={p.id as string} label={`${p.name} (${role})`} /></td>
                     </tr>
                   );
                 })}
