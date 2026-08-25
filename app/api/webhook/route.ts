@@ -485,8 +485,18 @@ async function processMessage(
   } else if (message.type === "audio") {
     const mediaId = message.audio!.id;
     console.log(`Voice message from ${userPhone}`);
-    const reply = await transcribeAndRespond(userPhone, mediaId);
-    await sendWhatsAppMessage(phoneNumberId, userPhone, reply);
+    const transcript = await transcribeVoice(mediaId);
+    if (!transcript) {
+      await sendWhatsAppMessage(phoneNumberId, userPhone, "I couldn't make out what you said — could you try again or type your question?");
+    } else {
+      // Same flow as a typed message: Socratic reply + diagram extraction run
+      // concurrently, then send a diagram (with caption) or plain text.
+      const [reply, spec] = await Promise.all([
+        getClaudeResponse(userPhone, transcript),
+        diagramsEnabledFor(userPhone) ? extractDiagram(transcript) : Promise.resolve(null),
+      ]);
+      await sendReplyMaybeDiagram(phoneNumberId, userPhone, transcript, reply, spec);
+    }
 
   } else {
     console.log(`Unsupported message type: ${message.type}`);
@@ -774,7 +784,10 @@ async function searchYouTube(query: string): Promise<{ title: string; url: strin
 
 // ── Whisper voice transcription ──────────────────────────────────────────────
 
-async function transcribeAndRespond(userPhone: string, mediaId: string): Promise<string> {
+// Returns the transcribed text (empty string if nothing could be made out).
+// The caller then handles it exactly like a typed message — including the
+// diagram path — so voice geometry questions get diagrams too.
+async function transcribeVoice(mediaId: string): Promise<string> {
   // Download voice note from Meta (WhatsApp sends OGG/Opus)
   const { buffer, mimeType } = await downloadMetaMediaBuffer(mediaId);
 
@@ -787,13 +800,7 @@ async function transcribeAndRespond(userPhone: string, mediaId: string): Promise
 
   const transcript = transcription.text.trim();
   console.log(`Transcribed voice: "${transcript}"`);
-
-  if (!transcript) {
-    return "I couldn't make out what you said — could you try again or type your question?";
-  }
-
-  // Treat the transcript exactly like a text message
-  return getClaudeResponse(userPhone, transcript);
+  return transcript;
 }
 
 // ── Meta media download ──────────────────────────────────────────────────────
