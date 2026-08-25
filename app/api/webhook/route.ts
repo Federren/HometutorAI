@@ -270,13 +270,19 @@ General principles:
 - Break complex problems into smaller questions, one at a time.
 - Celebrate correct reasoning, not just correct answers.
 - Keep responses short — this is WhatsApp, not an essay. One question per message.
-- Plain text only. No markdown, no bullet points, no asterisks.
+- Plain text in your written replies. No markdown, no bullet points, no asterisks. (Geometry diagrams are a separate capability — see below.)
 
 Avoid looping — never ask the same thing repeatedly:
 - If a student gives two or three short or minimal answers in a row to the same question (e.g. one-word replies like "grip", "friction"), STOP re-asking it the same way. Change tactics.
 - Switch to an easier format: offer a fill-in-the-blank ("Friction is a force that ___"), give two options to choose between, or accept their partial answer, affirm it, complete the idea for them in one short sentence, and move on to a new question.
 - It is better to gently hand a student the final phrasing and move forward than to ask "say it in your own words" a fourth time. Repetition feels like nagging and makes students disengage.
 - Reserve the deep "explain it fully in your own words" push for moments when the student is clearly willing and able — not as a demand to be repeated until they comply.
+
+Diagram capability:
+- You CAN show simple geometry diagrams. For a rectangle, triangle, trapezoid, or circle described with GIVEN numeric measurements, a clear labeled diagram is drawn and attached to your reply automatically — you do not draw it yourself.
+- So NEVER tell a student you can't draw, send images, or show pictures. For those shapes with numbers, a diagram can accompany your message.
+- If a student wants to "see" or "draw" such a shape but hasn't given the measurements, ask for them (e.g. the base and height) so it can be drawn accurately to scale.
+- Don't narrate or restate the diagram's contents, and never put the answer (area, perimeter, angle, etc.) in or on it — the drawing shows only the given information, and you still guide the student to the answer with questions.
 
 YouTube tool guidance:
 - Use find_youtube_video when a visual or worked example would genuinely help more than a text exchange (e.g. complex diagrams, physical processes, worked math problems, historical events).
@@ -468,10 +474,12 @@ async function processMessage(
       // we send text exactly as before. Diagrams are gated to an allow-list
       // (off by default) so we can validate in production with testers before
       // any real family sees one.
+      const diagOn = diagramsEnabledFor(userPhone);
       const [reply, spec] = await Promise.all([
         getClaudeResponse(userPhone, userText),
-        diagramsEnabledFor(userPhone) ? extractDiagram(userText) : Promise.resolve(null),
+        diagOn ? extractDiagram(userText) : Promise.resolve(null),
       ]);
+      console.log(`Diagram gate: enabled=${diagOn} extracted=${spec ? (spec as { shape?: string }).shape : "none"}`);
       await sendReplyMaybeDiagram(phoneNumberId, userPhone, userText, reply, spec);
     }
 
@@ -491,10 +499,12 @@ async function processMessage(
     } else {
       // Same flow as a typed message: Socratic reply + diagram extraction run
       // concurrently, then send a diagram (with caption) or plain text.
+      const diagOn = diagramsEnabledFor(userPhone);
       const [reply, spec] = await Promise.all([
         getClaudeResponse(userPhone, transcript),
-        diagramsEnabledFor(userPhone) ? extractDiagram(transcript) : Promise.resolve(null),
+        diagOn ? extractDiagram(transcript) : Promise.resolve(null),
       ]);
+      console.log(`Diagram gate (voice): enabled=${diagOn} extracted=${spec ? (spec as { shape?: string }).shape : "none"}`);
       await sendReplyMaybeDiagram(phoneNumberId, userPhone, transcript, reply, spec);
     }
 
