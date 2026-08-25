@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     const svg = renderDiagram(spec, lang);
     if (!svg) return NextResponse.json({ error: "renderDiagram returned null" }, { status: 400 });
     const png = svgToPng(svg);
-    return new NextResponse(png, {
+    return new NextResponse(new Uint8Array(png), {
       status: 200,
       headers: { "Content-Type": "image/png", "Cache-Control": "no-store" },
     });
