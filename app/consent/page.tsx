@@ -154,6 +154,17 @@ const green = "#1B3D2F";
 const cream = "#FAF8F5";
 const border = "#DDD8CE";
 
+// Grades 1–12. Stored as a canonical value ("Grade 8") so it's language-stable;
+// only the displayed label localizes.
+const GRADES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+const HE_GRADES = ["א", "ב", "ג", "ד", "ה", "ו", "ז", "ח", "ט", "י", "יא", "יב"];
+const AR_GRADES = ["الأول", "الثاني", "الثالث", "الرابع", "الخامس", "السادس", "السابع", "الثامن", "التاسع", "العاشر", "الحادي عشر", "الثاني عشر"];
+function gradeLabel(n: number, lang: Lang): string {
+  if (lang === "he") return `כיתה ${HE_GRADES[n - 1]}`;
+  if (lang === "ar") return `الصف ${AR_GRADES[n - 1]}`;
+  return `Grade ${n}`;
+}
+
 export default function ConsentPage() {
   const [lang, setLang] = useState<Lang>("en");
   const t = T[lang];
@@ -232,11 +243,14 @@ export default function ConsentPage() {
               <div style={{ display: "flex", gap: 12 }}>
                 <div style={{ flex: 1 }}>
                   <label style={label}>{t.childAge}</label>
-                  <input style={input} type="number" value={f.childAge} onChange={(e) => set("childAge", e.target.value)} />
+                  <input style={input} type="number" min={4} max={19} value={f.childAge} onChange={(e) => set("childAge", e.target.value)} />
                 </div>
                 <div style={{ flex: 2 }}>
                   <label style={label}>{t.childGrade}</label>
-                  <input style={input} value={f.childGrade} onChange={(e) => set("childGrade", e.target.value)} />
+                  <select style={{ ...input, cursor: "pointer" }} value={f.childGrade} onChange={(e) => set("childGrade", e.target.value)}>
+                    <option value="">{lang === "he" ? "בחר/י כיתה" : lang === "ar" ? "اختر الصف" : "Select grade"}</option>
+                    {GRADES.map((n) => <option key={n} value={`Grade ${n}`}>{gradeLabel(n, lang)}</option>)}
+                  </select>
                 </div>
               </div>
               <label style={label}>{t.childWhatsapp}</label>
