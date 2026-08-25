@@ -6,8 +6,8 @@ import { YoutubeTranscript } from "youtube-transcript";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
-import { extractDiagram } from "@/lib/diagram-extract";
-import { renderDiagram, svgToPng, detectLang } from "@/lib/diagram";
+import { planDiagramSvg } from "@/lib/diagram-plan";
+import { svgToPng, detectLang } from "@/lib/diagram";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -475,12 +475,12 @@ async function processMessage(
       // (off by default) so we can validate in production with testers before
       // any real family sees one.
       const diagOn = diagramsEnabledFor(userPhone);
-      const [reply, spec] = await Promise.all([
+      const [reply, svg] = await Promise.all([
         getClaudeResponse(userPhone, userText),
-        diagOn ? extractDiagram(userText) : Promise.resolve(null),
+        diagOn ? planDiagramSvg(userText, detectLang(userText)) : Promise.resolve(null),
       ]);
-      console.log(`Diagram gate: enabled=${diagOn} extracted=${spec ? (spec as { shape?: string }).shape : "none"}`);
-      await sendReplyMaybeDiagram(phoneNumberId, userPhone, userText, reply, spec);
+      console.log(`Diagram gate: enabled=${diagOn} drew=${svg ? "yes" : "no"}`);
+      await sendReplyMaybeDiagram(phoneNumberId, userPhone, svg, reply);
     }
 
   } else if (message.type === "image") {
@@ -500,12 +500,12 @@ async function processMessage(
       // Same flow as a typed message: Socratic reply + diagram extraction run
       // concurrently, then send a diagram (with caption) or plain text.
       const diagOn = diagramsEnabledFor(userPhone);
-      const [reply, spec] = await Promise.all([
+      const [reply, svg] = await Promise.all([
         getClaudeResponse(userPhone, transcript),
-        diagOn ? extractDiagram(transcript) : Promise.resolve(null),
+        diagOn ? planDiagramSvg(transcript, detectLang(transcript)) : Promise.resolve(null),
       ]);
-      console.log(`Diagram gate (voice): enabled=${diagOn} extracted=${spec ? (spec as { shape?: string }).shape : "none"}`);
-      await sendReplyMaybeDiagram(phoneNumberId, userPhone, transcript, reply, spec);
+      console.log(`Diagram gate (voice): enabled=${diagOn} drew=${svg ? "yes" : "no"}`);
+      await sendReplyMaybeDiagram(phoneNumberId, userPhone, svg, reply);
     }
 
   } else {
@@ -884,26 +884,22 @@ function diagramsEnabledFor(phone: string): boolean {
 }
 
 // Send the tutor's reply — as an image (diagram) with the reply as caption when
-// a valid spec was extracted, otherwise as plain text. Any failure in the
-// diagram path falls back to text so the student always gets the answer.
+// a diagram was produced, otherwise as plain text. Any failure in the diagram
+// path falls back to text so the student always gets the answer.
 async function sendReplyMaybeDiagram(
   phoneNumberId: string,
   to: string,
-  userText: string,
-  reply: string,
-  spec: unknown | null
+  svg: string | null,
+  reply: string
 ): Promise<void> {
-  if (spec) {
-    const svg = renderDiagram(spec, detectLang(userText));
-    if (svg) {
-      try {
-        const png = svgToPng(svg);
-        // WhatsApp image captions cap at 1024 chars; replies are short.
-        await sendWhatsAppImage(phoneNumberId, to, png, reply.slice(0, 1024));
-        return;
-      } catch (e) {
-        console.error("Diagram send failed, falling back to text:", e);
-      }
+  if (svg) {
+    try {
+      const png = svgToPng(svg);
+      // WhatsApp image captions cap at 1024 chars; replies are short.
+      await sendWhatsAppImage(phoneNumberId, to, png, reply.slice(0, 1024));
+      return;
+    } catch (e) {
+      console.error("Diagram send failed, falling back to text:", e);
     }
   }
   await sendWhatsAppMessage(phoneNumberId, to, reply);
