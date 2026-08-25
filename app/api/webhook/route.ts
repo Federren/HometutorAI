@@ -6,6 +6,8 @@ import { YoutubeTranscript } from "youtube-transcript";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
+import { extractDiagram } from "@/lib/diagram-extract";
+import { renderDiagram, svgToPng, detectLang } from "@/lib/diagram";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -456,10 +458,22 @@ async function processMessage(
     console.log(`Text from ${userPhone}: ${userText}`);
 
     const videoId = extractYouTubeId(userText);
-    const reply = videoId
-      ? await handleYouTubeLink(userPhone, videoId, userText)
-      : await getClaudeResponse(userPhone, userText);
-    await sendWhatsAppMessage(phoneNumberId, userPhone, reply);
+    if (videoId) {
+      const reply = await handleYouTubeLink(userPhone, videoId, userText);
+      await sendWhatsAppMessage(phoneNumberId, userPhone, reply);
+    } else {
+      // Run the Socratic reply and the diagram extraction concurrently. The
+      // extraction is a separate, self-contained call that returns a spec only
+      // for a supported 2D shape WITH given measurements — otherwise null, and
+      // we send text exactly as before. Diagrams are gated to an allow-list
+      // (off by default) so we can validate in production with testers before
+      // any real family sees one.
+      const [reply, spec] = await Promise.all([
+        getClaudeResponse(userPhone, userText),
+        diagramsEnabledFor(userPhone) ? extractDiagram(userText) : Promise.resolve(null),
+      ]);
+      await sendReplyMaybeDiagram(phoneNumberId, userPhone, userText, reply, spec);
+    }
 
   } else if (message.type === "image") {
     const mediaId = message.image!.id;
@@ -833,6 +847,89 @@ async function sendWhatsAppMessage(phoneNumberId: string, to: string, text: stri
     throw new Error(`Meta API ${res.status}`);
   }
   console.log("Sent:", JSON.stringify(await res.json()));
+}
+
+// Diagram allow-list. DIAGRAM_NUMBERS is a comma-separated list of phone
+// numbers (any format — matched on trailing digits so +country-code variants
+// work), or "*" for everyone. Unset/empty means diagrams are OFF for all —
+// the safe default that keeps a diagram from ever reaching a real family until
+// the feature is explicitly turned on.
+function diagramsEnabledFor(phone: string): boolean {
+  const cfg = (process.env.DIAGRAM_NUMBERS || "").trim();
+  if (!cfg) return false;
+  if (cfg === "*") return true;
+  const digits = phone.replace(/\D/g, "");
+  return cfg
+    .split(",")
+    .map((s) => s.replace(/\D/g, ""))
+    .filter(Boolean)
+    .some((n) => digits.endsWith(n) || n.endsWith(digits));
+}
+
+// Send the tutor's reply — as an image (diagram) with the reply as caption when
+// a valid spec was extracted, otherwise as plain text. Any failure in the
+// diagram path falls back to text so the student always gets the answer.
+async function sendReplyMaybeDiagram(
+  phoneNumberId: string,
+  to: string,
+  userText: string,
+  reply: string,
+  spec: unknown | null
+): Promise<void> {
+  if (spec) {
+    const svg = renderDiagram(spec, detectLang(userText));
+    if (svg) {
+      try {
+        const png = svgToPng(svg);
+        // WhatsApp image captions cap at 1024 chars; replies are short.
+        await sendWhatsAppImage(phoneNumberId, to, png, reply.slice(0, 1024));
+        return;
+      } catch (e) {
+        console.error("Diagram send failed, falling back to text:", e);
+      }
+    }
+  }
+  await sendWhatsAppMessage(phoneNumberId, to, reply);
+}
+
+// Upload PNG bytes to Meta's media endpoint (no public URL — the media ID is
+// private and expires), then send it as an image message with a caption.
+async function sendWhatsAppImage(phoneNumberId: string, to: string, png: Buffer, caption: string): Promise<void> {
+  const token = process.env.META_ACCESS_TOKEN;
+
+  const form = new FormData();
+  form.append("messaging_product", "whatsapp");
+  form.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "diagram.png");
+  form.append("type", "image/png");
+  const up = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/media`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  if (!up.ok) {
+    let err: unknown;
+    try { err = await up.json(); } catch { err = await up.text(); }
+    throw new Error(`Meta media upload ${up.status}: ${JSON.stringify(err)}`);
+  }
+  const { id } = (await up.json()) as { id: string };
+
+  const res = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: to.replace(/^\+/, ""),
+      type: "image",
+      image: { id, caption },
+    }),
+  });
+  if (!res.ok) {
+    let err: unknown;
+    try { err = await res.json(); } catch { err = await res.text(); }
+    throw new Error(`Meta image send ${res.status}: ${JSON.stringify(err)}`);
+  }
+  console.log("Sent diagram image:", JSON.stringify(await res.json()));
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
