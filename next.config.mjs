@@ -8,6 +8,7 @@ const nextConfig = {
     // file tracing can't detect the runtime fs.readFileSync path on its own.
     outputFileTracingIncludes: {
       "/api/webhook": ["./lib/fonts/**"],
+      "/api/admin/diagram-test": ["./lib/fonts/**"],
     },
   },
   // Serve the finalized static holding page at the site root. A beforeFiles
