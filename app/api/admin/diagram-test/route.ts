@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { renderDiagram, svgToPng, detectLang } from "@/lib/diagram";
+import { renderDiagram, svgToPng, type Lang } from "@/lib/diagram";
 
 // Admin-only diagnostic: renders a sample geometry diagram to PNG in the live
 // serverless runtime, to confirm the resvg native binary and the bundled fonts
@@ -11,8 +11,11 @@ export async function GET(req: NextRequest) {
   if (req.cookies.get("admin_session")?.value !== process.env.ADMIN_SESSION_TOKEN) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  // Hebrew sample by default (exercises RTL + non-Latin font fallback).
-  const lang = detectLang(req.nextUrl.searchParams.get("lang") || "he");
+  // Hebrew sample by default so a localized non-Latin unit label (ס״מ) is
+  // rendered — this exercises the bundled Hebrew/Arabic font in the lambda,
+  // not just the Latin one.
+  const p = req.nextUrl.searchParams.get("lang");
+  const lang: Lang = p === "ar" ? "ar" : p === "en" ? "en" : "he";
   const spec = { shape: "triangle", base: 12, height: 7, unit: "cm" };
   try {
     const svg = renderDiagram(spec, lang);
