@@ -191,6 +191,7 @@ async function checkSafety(phone: string, text: string): Promise<void> {
 // ── Student profiles (Supabase-backed) ───────────────────────────────────────
 
 interface StudentProfile {
+  id?: string;
   name: string;
   age?: number;
   grade?: string;
@@ -217,7 +218,7 @@ async function getAllProfiles(): Promise<Record<string, StudentProfile>> {
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("phone_number, name, age, grade, stream, subjects, language, tone")
+    .select("id, phone_number, name, age, grade, stream, subjects, language, tone")
     .eq("active", true);
 
   if (error || !data) {
@@ -228,6 +229,7 @@ async function getAllProfiles(): Promise<Record<string, StudentProfile>> {
   const map: Record<string, StudentProfile> = {};
   for (const row of data) {
     map[row.phone_number] = {
+      id: row.id,
       name: row.name,
       age: row.age ?? undefined,
       grade: row.grade ?? undefined,
@@ -303,7 +305,7 @@ Sefaria tool guidance:
 - After fetching a text, quote the relevant line briefly, then ask the student what they notice or what they think it means — never explain it for them first.
 - Respond in Hebrew when discussing Hebrew texts with Hebrew-language students.`;
 
-function buildSystemPrompt(profile: StudentProfile): string {
+function buildSystemPrompt(profile: StudentProfile, memory?: StudentMemory | null): string {
   const lines = [
     `- Name: ${profile.name}`,
     profile.age ? `- Age: ${profile.age}` : null,
@@ -317,7 +319,176 @@ function buildSystemPrompt(profile: StudentProfile): string {
   return `${BASE_PROMPT}
 
 Student profile — calibrate your vocabulary, examples, and language accordingly:
-${lines}`;
+${lines}${memorySection(memory)}`;
+}
+
+// Long-term memory injected as PRIVATE background. Guardrails: use it to adapt
+// HOW you teach, never recite it, never claim to "remember" or have "records".
+function memorySection(memory?: StudentMemory | null): string {
+  if (!memory) return "";
+  const parts: string[] = [];
+  if (memory.summary?.trim()) parts.push(`- Summary: ${memory.summary.trim()}`);
+  const subjects = memory.subjects_covered && Object.keys(memory.subjects_covered).length
+    ? Object.entries(memory.subjects_covered).map(([s, t]) => `${s}: ${(Array.isArray(t) ? t : []).join(", ")}`).join("; ")
+    : "";
+  if (subjects) parts.push(`- Worked on before: ${subjects}`);
+  if (memory.recurring_difficulties?.length) parts.push(`- Recurring difficulties to watch for: ${memory.recurring_difficulties.join("; ")}`);
+  if (memory.effective_approaches?.trim()) parts.push(`- What works well for this student: ${memory.effective_approaches.trim()}`);
+  if (!parts.length) return "";
+  return `
+
+Private background on this student, from past sessions. Use it ONLY to adapt how you teach — your examples, pacing, and where to probe. This is NOT something to recite: do not tell the student you remember past sessions or have any "record" of them. If it ever comes up, be warm and casual ("let's try this a different way"), never clinical. It describes how they learn, never answers to hand over.
+${parts.join("\n")}`;
+}
+
+// ── Long-term student memory (Supabase-backed, summarized across sessions) ────
+//
+// A second memory layer ON TOP of the Redis session window: a compact, durable,
+// periodically-merged summary per student (patterns, never transcripts, never
+// answers). Gated behind MEMORY_NUMBERS so no minor's learning profile is stored
+// until deliberately enabled for a pilot subset.
+
+interface StudentMemory {
+  summary: string;
+  subjects_covered: Record<string, string[]>;
+  recurring_difficulties: string[];
+  effective_approaches: string;
+  session_count: number;
+}
+
+const MEMORY_MODEL = "claude-haiku-4-5-20251001"; // cheap; this is a summarize/merge task
+const MEMORY_SUMMARIZE_EVERY = 4; // exchanges before a background re-summarization
+
+function memoryEnabledFor(phone: string): boolean {
+  const cfg = (process.env.MEMORY_NUMBERS || "").trim();
+  if (!cfg) return false;
+  if (cfg === "*") return true;
+  const digits = phone.replace(/\D/g, "");
+  return cfg.split(",").map((s) => s.replace(/\D/g, "")).filter(Boolean).some((n) => digits.endsWith(n) || n.endsWith(digits));
+}
+
+// Short cache so we don't read Supabase on every message of a session.
+const _memCache = new Map<string, { m: StudentMemory | null; exp: number }>();
+const MEMORY_CACHE_TTL_MS = 2 * 60 * 1000;
+
+async function getStudentMemory(studentId: string): Promise<StudentMemory | null> {
+  const hit = _memCache.get(studentId);
+  if (hit && Date.now() < hit.exp) return hit.m;
+  const { data, error } = await supabase
+    .from("student_memory")
+    .select("summary, subjects_covered, recurring_difficulties, effective_approaches, session_count")
+    .eq("student_id", studentId)
+    .maybeSingle();
+  if (error) { console.error("getStudentMemory error:", error.message); return null; }
+  const m: StudentMemory | null = data
+    ? {
+        summary: data.summary ?? "",
+        subjects_covered: (data.subjects_covered as Record<string, string[]>) ?? {},
+        recurring_difficulties: data.recurring_difficulties ?? [],
+        effective_approaches: data.effective_approaches ?? "",
+        session_count: data.session_count ?? 0,
+      }
+    : null;
+  _memCache.set(studentId, { m, exp: Date.now() + MEMORY_CACHE_TTL_MS });
+  return m;
+}
+
+// Count a new sitting (Redis flag with a sliding 1h TTL) and bump session_count.
+async function noteSession(userPhone: string, profile: StudentProfile): Promise<void> {
+  if (!profile.id) return;
+  const key = `mem:session:${userPhone}`;
+  const isNew = !(await redis.get(key));
+  await redis.set(key, "1", { ex: 3600 });
+  if (!isNew) return;
+  try {
+    const existing = await getStudentMemory(profile.id);
+    await supabase.from("student_memory").upsert(
+      { student_id: profile.id, session_count: (existing?.session_count ?? 0) + 1, last_updated: new Date().toISOString() },
+      { onConflict: "student_id" }
+    );
+    _memCache.delete(profile.id);
+  } catch (e) {
+    console.error("noteSession error:", e);
+  }
+}
+
+// After N exchanges, merge the recent conversation into the durable memory.
+async function maybeSummarize(userPhone: string, profile: StudentProfile): Promise<void> {
+  if (!profile.id) return;
+  const count = await redis.incr(`mem:pending:${userPhone}`);
+  await redis.expire(`mem:pending:${userPhone}`, 7200);
+  if (count < MEMORY_SUMMARIZE_EVERY) return;
+  await redis.set(`mem:pending:${userPhone}`, 0, { ex: 7200 });
+  await summarizeAndMerge(userPhone, profile);
+}
+
+const MEMORY_SYSTEM = `You maintain a concise, durable LEARNING MEMORY for one tutoring student — a brief handoff note a good tutor would leave for next time.
+
+You are given the student's PRIOR memory and today's conversation. Produce an UPDATED memory by calling update_memory.
+
+Rules:
+- Summarize PATTERNS, not events. Keep the summary to a few sentences at most — a synthesis, not a log.
+- Preserve what's still relevant from before; add what's genuinely new; drop anything superseded or no longer useful. Do not let it grow unboundedly.
+- Describe HOW this student learns and where they struggle — never store answers. NEVER include solved answers, specific homework results, or shortcuts (e.g. do NOT write "the answer was 42"). A difficulty is a pattern like "mixes up perimeter and area", not an answer.
+- recurring_difficulties: durable patterns only. effective_approaches: what actually helps this student (e.g. "responds to real-world analogies; needs one small step at a time"). subjects_covered: map subject -> list of topics touched.
+- If today's conversation had nothing durable worth remembering, keep the prior memory essentially unchanged.
+- Write in English regardless of the conversation language.`;
+
+const MEMORY_TOOL: Anthropic.Tool = {
+  name: "update_memory",
+  description: "Write the student's updated durable learning memory.",
+  input_schema: {
+    type: "object",
+    properties: {
+      summary: { type: "string", description: "A few sentences: durable synthesis of who this learner is and where they are. No answers." },
+      subjects_covered: { type: "object", description: "Map of subject -> array of topic strings touched over time.", additionalProperties: { type: "array", items: { type: "string" } } },
+      recurring_difficulties: { type: "array", items: { type: "string" }, description: "Durable difficulty patterns (not answers)." },
+      effective_approaches: { type: "string", description: "What teaching approaches work well for this student." },
+    },
+    required: ["summary"],
+  },
+};
+
+async function summarizeAndMerge(userPhone: string, profile: StudentProfile): Promise<void> {
+  if (!profile.id) return;
+  try {
+    const history = await getHistory(userPhone);
+    if (!history.length) return;
+    const prior = await getStudentMemory(profile.id);
+    const transcript = history
+      .map((m) => `${m.role === "user" ? profile.name || "Student" : "Tutor"}: ${typeof m.content === "string" ? m.content : ""}`)
+      .filter((l) => l.trim().length > 0)
+      .join("\n");
+    const priorJson = JSON.stringify(prior ?? { summary: "", subjects_covered: {}, recurring_difficulties: [], effective_approaches: "" });
+
+    const r = await anthropic.messages.create({
+      model: MEMORY_MODEL,
+      max_tokens: 700,
+      system: MEMORY_SYSTEM,
+      tools: [MEMORY_TOOL],
+      tool_choice: { type: "tool", name: "update_memory" },
+      messages: [{ role: "user", content: `Prior memory (JSON):\n${priorJson}\n\nToday's conversation:\n${transcript}` }],
+    });
+    const tool = r.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+    if (!tool) return;
+    const out = tool.input as Partial<StudentMemory>;
+
+    await supabase.from("student_memory").upsert(
+      {
+        student_id: profile.id,
+        summary: (out.summary ?? "").slice(0, 4000),
+        subjects_covered: out.subjects_covered ?? {},
+        recurring_difficulties: (out.recurring_difficulties ?? []).slice(0, 30),
+        effective_approaches: (out.effective_approaches ?? "").slice(0, 2000),
+        last_updated: new Date().toISOString(),
+      },
+      { onConflict: "student_id" }
+    );
+    _memCache.delete(profile.id);
+    console.log(`Memory updated for ${profile.name || profile.id}`);
+  } catch (e) {
+    console.error("summarizeAndMerge error:", e);
+  }
 }
 
 // ── Tool definitions ──────────────────────────────────────────────────────────
@@ -525,6 +696,8 @@ async function processMessage(
 
 async function getClaudeResponse(userPhone: string, userMessage: string): Promise<string> {
   const profile = await getProfile(userPhone);
+  const memOn = memoryEnabledFor(userPhone);
+  const memory = memOn && profile.id ? await getStudentMemory(profile.id) : null;
   const history = await getHistory(userPhone);
   const updatedHistory: Message[] = [...history, { role: "user", content: userMessage }];
 
@@ -535,7 +708,7 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 512,
-    system: buildSystemPrompt(profile),
+    system: buildSystemPrompt(profile, memory),
     tools: ALL_TOOLS,
     messages: updatedHistory,
   });
@@ -566,7 +739,7 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
       const finalResponse = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
         max_tokens: 512,
-        system: buildSystemPrompt(profile),
+        system: buildSystemPrompt(profile, memory),
         tools: ALL_TOOLS,
         messages: [
           ...updatedHistory,
@@ -579,6 +752,7 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
       const reply = finalBlock?.text ?? "";
       await saveHistory(userPhone, [...updatedHistory, { role: "assistant", content: reply }]);
       logMessage(userPhone, "assistant", reply, subject).catch(e => console.error("Log error:", e));
+      scheduleMemoryUpdate(userPhone, profile, memOn);
       return reply;
     }
   }
@@ -588,7 +762,17 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
   const reply = textBlock?.text ?? "";
   await saveHistory(userPhone, [...updatedHistory, { role: "assistant", content: reply }]);
   logMessage(userPhone, "assistant", reply, subject).catch(e => console.error("Log error:", e));
+  scheduleMemoryUpdate(userPhone, profile, memOn);
   return reply;
+}
+
+// Background: mark the session and, every N exchanges, merge into durable memory.
+function scheduleMemoryUpdate(userPhone: string, profile: StudentProfile, on: boolean): void {
+  if (!on) return;
+  waitUntil((async () => {
+    await noteSession(userPhone, profile);
+    await maybeSummarize(userPhone, profile);
+  })());
 }
 
 // ── Anthropic: incoming YouTube link ─────────────────────────────────────────
