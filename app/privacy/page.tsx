@@ -33,6 +33,7 @@ export default function PrivacyPolicy() {
           <Li>Your child&apos;s WhatsApp phone number</Li>
           <Li>Parent/guardian name, email, and phone number</Li>
           <Li>Your child&apos;s conversation history with the tutor — text messages, voice notes, and photos of homework they send</Li>
+          <Li>A brief, ongoing learning summary — notes on the topics your child has worked on and how they learn best (never their answers); see below</Li>
           <Li>Parental consent records, including a typed signature, timestamp, and IP address for record-keeping</Li>
         </ul>
 
@@ -48,6 +49,14 @@ export default function PrivacyPolicy() {
           <Li><strong>Supabase</strong> — secure database, hosted in the European Union</Li>
           <Li><strong>Vercel</strong> — application hosting</Li>
         </ul>
+
+        <H>Learning summary</H>
+        <P>
+          To help the tutor adapt to your child over time, we keep a short, ongoing summary of how your child learns —
+          for example, the topics they have worked on and that they do better with step-by-step explanations. It is generated
+          by Anthropic&apos;s Claude from past conversations and describes <em>how</em> your child learns — never their answers
+          or any solved homework. It is stored with your child&apos;s other data and is deleted together with it on request.
+        </P>
 
         <H>Where your data is stored</H>
         <P>Our database is hosted in the European Union (eu-central-1).</P>
