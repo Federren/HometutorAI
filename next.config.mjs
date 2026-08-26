@@ -3,7 +3,7 @@ const nextConfig = {
   experimental: {
     // @resvg/resvg-js is a native (N-API) module — keep it out of the webpack
     // bundle so its platform binary loads correctly in the serverless runtime.
-    serverComponentsExternalPackages: ["@resvg/resvg-js"],
+    serverComponentsExternalPackages: ["@resvg/resvg-js", "mathjax-full"],
     // Force-include the diagram label fonts in the webhook's serverless bundle;
     // file tracing can't detect the runtime fs.readFileSync path on its own.
     outputFileTracingIncludes: {

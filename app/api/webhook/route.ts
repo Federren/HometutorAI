@@ -8,6 +8,7 @@ import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 import { planDiagramSvg } from "@/lib/diagram-plan";
 import { svgToPng, detectLang } from "@/lib/diagram";
+import { renderEquationPng, texToPlain } from "@/lib/mathrender";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -279,10 +280,17 @@ Avoid looping — never ask the same thing repeatedly:
 - Reserve the deep "explain it fully in your own words" push for moments when the student is clearly willing and able — not as a demand to be repeated until they comply.
 
 Diagram capability:
-- You CAN show simple geometry diagrams. For a rectangle, triangle, trapezoid, or circle described with GIVEN numeric measurements, a clear labeled diagram is drawn and attached to your reply automatically — you do not draw it yourself.
-- So NEVER tell a student you can't draw, send images, or show pictures. For those shapes with numbers, a diagram can accompany your message.
-- If a student wants to "see" or "draw" such a shape but hasn't given the measurements, ask for them (e.g. the base and height) so it can be drawn accurately to scale.
-- Don't narrate or restate the diagram's contents, and never put the answer (area, perimeter, angle, etc.) in or on it — the drawing shows only the given information, and you still guide the student to the answer with questions.
+- You CAN show simple diagrams. When a problem involves a shape or a visual idea (a triangle, rectangle, trapezoid or circle — with numbers OR with symbols like "a"; a number line, a fraction, an angle, a right triangle for Pythagoras, etc.), a clear labeled drawing is created and attached to your reply automatically — you do not draw it yourself.
+- So NEVER tell a student you can't draw, send images, or show pictures.
+- The drawing shows only the GIVEN information — never the answer. Keep guiding the student to the answer with questions, and don't just narrate the picture.
+
+Equations and math notation:
+- You CAN show clean, typeset math. When a step centers on a real formula — anything with a fraction, a root, an exponent, or a multi-part equation — put that ONE key equation on its own line wrapped in $$ ... $$ using standard LaTeX (e.g. $$h^2 = a^2 - \\frac{a^2}{4}$$ or $$h = \\frac{a\\sqrt{3}}{2}$$). It is rendered as a clear image for the student, so they see real math instead of hard-to-read symbols.
+- Keep the sentence around it readable without the equation inline (say "we get:" then the equation, then your question). Use at most one $$...$$ block per message; for tiny inline bits (like x = 2) just write them normally.
+
+Helping students write math on their phone:
+- Typing math on a phone is hard. When a student is working through multi-step algebra or is clearly struggling to type an expression, proactively offer the easiest path: "You can just snap a photo of your working and send it to me" — you can read handwritten math from a photo. A voice note works too.
+- Early in a math conversation, if useful, teach the simple shorthand once: write ^ for powers (a^2), / for fractions (3/4), and sqrt() for roots (sqrt(3)). Reassure them their notation doesn't have to be perfect — you'll understand.
 
 YouTube tool guidance:
 - Use find_youtube_video when a visual or worked example would genuinely help more than a text exchange (e.g. complex diagrams, physical processes, worked math problems, historical events).
@@ -479,8 +487,8 @@ async function processMessage(
         getClaudeResponse(userPhone, userText),
         diagOn ? planDiagramSvg(userText, detectLang(userText)) : Promise.resolve(null),
       ]);
-      console.log(`Diagram gate: enabled=${diagOn} drew=${svg ? "yes" : "no"}`);
-      await sendReplyMaybeDiagram(phoneNumberId, userPhone, svg, reply);
+      console.log(`Visual gate: enabled=${diagOn} diagram=${svg ? "yes" : "no"} eq=${EQ_RE.test(reply) ? "yes" : "no"}`);
+      await deliverReply(phoneNumberId, userPhone, reply, svg, diagOn);
     }
 
   } else if (message.type === "image") {
@@ -504,8 +512,8 @@ async function processMessage(
         getClaudeResponse(userPhone, transcript),
         diagOn ? planDiagramSvg(transcript, detectLang(transcript)) : Promise.resolve(null),
       ]);
-      console.log(`Diagram gate (voice): enabled=${diagOn} drew=${svg ? "yes" : "no"}`);
-      await sendReplyMaybeDiagram(phoneNumberId, userPhone, svg, reply);
+      console.log(`Visual gate (voice): enabled=${diagOn} diagram=${svg ? "yes" : "no"} eq=${EQ_RE.test(reply) ? "yes" : "no"}`);
+      await deliverReply(phoneNumberId, userPhone, reply, svg, diagOn);
     }
 
   } else {
@@ -883,26 +891,57 @@ function diagramsEnabledFor(phone: string): boolean {
     .some((n) => digits.endsWith(n) || n.endsWith(digits));
 }
 
-// Send the tutor's reply — as an image (diagram) with the reply as caption when
-// a diagram was produced, otherwise as plain text. Any failure in the diagram
-// path falls back to text so the student always gets the answer.
-async function sendReplyMaybeDiagram(
+// A display equation the tutor wants typeset: $$ ... $$ or \[ ... \].
+const EQ_RE = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]/;
+const EQ_RE_G = /\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]/g;
+
+// Deliver the tutor's reply, upgrading math to images where it helps:
+//  - a diagram (from the student's problem) is sent first, supplementary;
+//  - a key equation in the reply is typeset as an image carrying the text;
+//  - otherwise the diagram (or plain text) carries the reply.
+// mathOn gates the image upgrades (pilot allow-list); when off, a LaTeX block
+// is converted to readable plain text so raw "$$...$$" never reaches anyone.
+// Every image path falls back to text on failure — the student always gets the reply.
+async function deliverReply(
   phoneNumberId: string,
   to: string,
-  svg: string | null,
-  reply: string
+  reply: string,
+  diagramSvg: string | null,
+  mathOn: boolean
 ): Promise<void> {
-  if (svg) {
-    try {
-      const png = svgToPng(svg);
-      // WhatsApp image captions cap at 1024 chars; replies are short.
-      await sendWhatsAppImage(phoneNumberId, to, png, reply.slice(0, 1024));
-      return;
-    } catch (e) {
-      console.error("Diagram send failed, falling back to text:", e);
+  // Pull out one display equation, if present.
+  let text = reply;
+  let eqPng: Buffer | null = null;
+  const m = reply.match(EQ_RE);
+  if (m) {
+    const tex = (m[1] ?? m[2] ?? "").trim();
+    text = reply.replace(EQ_RE_G, "").replace(/\n{3,}/g, "\n\n").trim();
+    if (mathOn) eqPng = renderEquationPng(tex);
+    if (!eqPng) {
+      const plain = texToPlain(tex);
+      text = text ? `${text}\n\n${plain}` : plain; // readable fallback, no raw LaTeX
     }
   }
-  await sendWhatsAppMessage(phoneNumberId, to, reply);
+
+  const cap = (s: string) => s.slice(0, 1024);
+  let diagPng: Buffer | null = null;
+  if (mathOn && diagramSvg) {
+    try { diagPng = svgToPng(diagramSvg); } catch (e) { console.error("Diagram raster failed:", e); }
+  }
+
+  if (eqPng) {
+    // Equation is the hero image carrying the text; diagram (if any) goes first.
+    if (diagPng) { try { await sendWhatsAppImage(phoneNumberId, to, diagPng, ""); } catch (e) { console.error("Diagram send failed:", e); } }
+    try { await sendWhatsAppImage(phoneNumberId, to, eqPng, cap(text)); return; }
+    catch (e) { console.error("Equation send failed, text fallback:", e); }
+    await sendWhatsAppMessage(phoneNumberId, to, text || reply);
+    return;
+  }
+  if (diagPng) {
+    try { await sendWhatsAppImage(phoneNumberId, to, diagPng, cap(text)); return; }
+    catch (e) { console.error("Diagram send failed, text fallback:", e); }
+  }
+  await sendWhatsAppMessage(phoneNumberId, to, text || reply);
 }
 
 // Upload PNG bytes to Meta's media endpoint (no public URL — the media ID is
