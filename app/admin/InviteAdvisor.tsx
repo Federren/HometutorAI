@@ -1,17 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { composeInviteText, type InviteRole } from "@/lib/invite";
 
 const green = "#1B3D2F";
 
 export default function InviteAdvisor() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [role, setRole] = useState("advisor");
+  const [role, setRole] = useState<InviteRole>("advisor");
   const [email, setEmail] = useState("");
-  const [message, setMessage] = useState("");
+  const [draft, setDraft] = useState(composeInviteText("advisor", ""));
+  const [draftDirty, setDraftDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Keep the preview in sync with name/role until the admin edits it by hand.
+  useEffect(() => {
+    if (!draftDirty) setDraft(composeInviteText(role, name));
+  }, [role, name, draftDirty]);
+
+  function resetDraft() {
+    setDraft(composeInviteText(role, name));
+    setDraftDirty(false);
+  }
 
   async function invite(e: React.FormEvent) {
     e.preventDefault();
@@ -21,7 +33,7 @@ export default function InviteAdvisor() {
       const res = await fetch("/api/admin/invite-advisor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, phone, role, email, message }),
+        body: JSON.stringify({ name, phone, role, email, body: draft }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "Failed");
@@ -34,7 +46,8 @@ export default function InviteAdvisor() {
       setName("");
       setPhone("");
       setEmail("");
-      setMessage("");
+      setDraftDirty(false);
+      setDraft(composeInviteText("advisor", ""));
       setTimeout(() => window.location.reload(), 1600);
     } catch (err) {
       setMsg({ ok: false, text: err instanceof Error ? err.message : "Failed" });
@@ -48,7 +61,7 @@ export default function InviteAdvisor() {
   return (
     <form onSubmit={invite}>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-        <select value={role} onChange={(e) => setRole(e.target.value)} style={{ ...input, flex: "0 1 130px", cursor: "pointer" }}>
+        <select value={role} onChange={(e) => setRole(e.target.value as InviteRole)} style={{ ...input, flex: "0 1 130px", cursor: "pointer" }}>
           <option value="advisor">Advisor</option>
           <option value="teacher">Teacher</option>
           <option value="tester">Tester</option>
@@ -57,12 +70,19 @@ export default function InviteAdvisor() {
         <input style={{ ...input, flex: "1 1 170px" }} placeholder="Phone incl. country code (e.g. 447…)" value={phone} onChange={(e) => setPhone(e.target.value)} required />
         <input type="email" style={{ ...input, flex: "1 1 180px" }} placeholder="Email (sends the invite)" value={email} onChange={(e) => setEmail(e.target.value)} />
       </div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+        <label style={{ fontSize: 12.5, color: "#6b6459" }}>Invitation email — edit before sending</label>
+        <button type="button" onClick={resetDraft} style={{ fontSize: 12, color: green, background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}>
+          Reset to template
+        </button>
+      </div>
       <textarea
-        placeholder="Personal message (optional) — added to the top of their invitation email"
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-        style={{ ...input, width: "100%", minHeight: 64, resize: "vertical", fontFamily: "inherit", marginBottom: 12 }}
+        value={draft}
+        onChange={(e) => { setDraft(e.target.value); setDraftDirty(true); }}
+        style={{ ...input, width: "100%", minHeight: 190, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5, marginBottom: 12 }}
       />
+
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
         <button type="submit" disabled={busy} style={{ padding: "10px 20px", fontSize: 14, fontWeight: 600, color: "white", background: busy ? "#7A9A8B" : green, border: "none", borderRadius: 9, cursor: busy ? "default" : "pointer" }}>
           {busy ? "Inviting…" : "Send invite"}

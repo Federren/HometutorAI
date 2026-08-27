@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { waitUntil } from "@vercel/functions";
 import { sendEmail } from "@/lib/email";
+import { inviteTextToHtml, INVITE_SUBJECT } from "@/lib/invite";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -82,7 +83,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let b: { name?: string; phone?: string; role?: string; email?: string; message?: string };
+  let b: { name?: string; phone?: string; role?: string; email?: string; message?: string; body?: string };
   try {
     b = await req.json();
   } catch {
@@ -93,6 +94,7 @@ export async function POST(req: NextRequest) {
   const phone = (b.phone ?? "").replace(/[^0-9]/g, "");
   const email = (b.email ?? "").trim() || null;
   const message = (b.message ?? "").trim() || null;
+  const body = (b.body ?? "").trim() || null; // the admin-edited email draft
   const role: Role = ROLES.includes(b.role as Role) ? (b.role as Role) : "advisor";
   if (!name || phone.length < 8) {
     return NextResponse.json({ error: "Name and a valid phone number (with country code) are required." }, { status: 400 });
@@ -129,10 +131,12 @@ export async function POST(req: NextRequest) {
   }
 
   // The reliable notification: email the invitee (WhatsApp can't start a chat).
+  // Send the admin's edited draft when provided; otherwise the default template.
   let emailed = false;
   if (email) {
-    const e = inviteEmail(role, name, message);
-    waitUntil(sendEmail(email, e.subject, e.html));
+    const subject = INVITE_SUBJECT;
+    const html = body ? inviteTextToHtml(body) : inviteEmail(role, name, message).html;
+    waitUntil(sendEmail(email, subject, html));
     emailed = true;
   }
 
