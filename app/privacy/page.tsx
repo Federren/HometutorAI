@@ -62,7 +62,12 @@ export default function PrivacyPolicy() {
         <P>Our database is hosted in the European Union (eu-central-1).</P>
 
         <H>How long we keep it</H>
-        <P>For the duration of the pilot and while your child is an active participant. You can request deletion at any time.</P>
+        <P>
+          We keep your child&apos;s information — including their conversation history and learning summary — while your child is
+          an active user of HomeTutor AI. The learning summary is refreshed as your child learns, so it stays a brief, current
+          picture rather than growing without limit. You can request deletion of any of your child&apos;s data at any time, and
+          we remove it.
+        </P>
 
         <H>Your rights</H>
         <P>
