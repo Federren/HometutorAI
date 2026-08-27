@@ -39,7 +39,7 @@ const T: Record<Lang, {
     dataH: "Data & Privacy",
     data: [
       "We collect your child's name, age/grade, phone number, and their full conversation history with the tutor — including text messages, voice notes, and photos of homework they send.",
-      "To help the tutor adapt to your child over time, we also keep a brief, ongoing learning summary — a few notes on the topics your child has worked on and how they learn best (for example, that they do better with step-by-step explanations). It records how your child learns, never their answers. We keep it only while your child uses HomeTutor AI, refresh it as they learn so it stays brief, and delete it whenever their data is deleted.",
+      "So the tutor can keep track of your child's progress and guide them through their classes — instead of starting from scratch each time — it keeps a few simple notes on what your child has been working on and what helps them learn (for example, that they do better with step-by-step explanations). These are learning notes only, never their answers, kept while your child uses HomeTutor AI and removed whenever you ask.",
       "To run the service, this information is processed by trusted providers: Anthropic (the Claude AI tutor), OpenAI (transcribing voice notes via Whisper), Meta (WhatsApp messaging), Supabase (secure database, stored in the EU), and Vercel (application hosting).",
       "Your child's data is used only to provide and improve the tutoring service. It is never sold, and never shared with third parties for marketing.",
       "You can request a copy of your child's data, or ask us to delete it, at any time by contacting us.",
@@ -82,7 +82,7 @@ const T: Record<Lang, {
     dataH: "מידע ופרטיות",
     data: [
       "אנו אוספים את שם הילד/ה, גיל/כיתה, מספר טלפון, ואת כל תיעוד השיחות עם המורה — כולל הודעות טקסט, הודעות קוליות, ותצלומי שיעורי בית שנשלחים.",
-      "כדי לאפשר למורה להתאים את עצמו לילדך לאורך זמן, אנו גם שומרים סיכום למידה קצר ומתעדכן — מספר הערות על הנושאים שהילד/ה עבד/ה עליהם וכיצד הוא/היא לומד/ת בצורה הטובה ביותר (למשל, שהוא/היא מפיק/ה תועלת מהסברים צעד-אחר-צעד). הסיכום מתעד כיצד ילדך לומד/ת, לעולם לא את התשובות שלו/ה. אנו שומרים אותו רק כל עוד ילדך משתמש/ת ב-HomeTutor AI, מעדכנים אותו תוך כדי הלמידה כך שיישאר קצר, ומוחקים אותו יחד עם שאר המידע בעת מחיקה.",
+      "כדי שהמורה יוכל לעקוב אחר ההתקדמות של ילדך וללוות אותו/ה לאורך הלימודים — במקום להתחיל מאפס בכל פעם — אנו שומרים כמה הערות פשוטות על מה שהילד/ה עבד/ה עליו ומה עוזר לו/ה ללמוד (למשל, שהוא/היא מפיק/ה תועלת מהסברים צעד-אחר-צעד). אלו הערות לימודיות בלבד, לעולם לא התשובות שלו/ה, הנשמרות כל עוד ילדך משתמש/ת ב-HomeTutor AI ונמחקות בכל עת לפי בקשתך.",
       "לצורך הפעלת השירות, המידע מעובד על ידי ספקים מהימנים: Anthropic (מורה ה-AI, Claude), OpenAI (תמלול הודעות קוליות באמצעות Whisper), Meta (הודעות וואטסאפ), Supabase (מסד נתונים מאובטח, מאוחסן באיחוד האירופי), ו-Vercel (אחסון האפליקציה).",
       "המידע של ילדך משמש רק למתן ולשיפור שירות ההוראה. הוא אינו נמכר לעולם, ואינו משותף עם צדדים שלישיים לצרכי שיווק.",
       "ניתן לבקש עותק של מידע ילדך, או לבקש את מחיקתו, בכל עת על ידי פנייה אלינו.",
@@ -125,7 +125,7 @@ const T: Record<Lang, {
     dataH: "البيانات والخصوصية",
     data: [
       "نجمع اسم الطفل، العمر/الصف، رقم الهاتف، وكامل سجل المحادثات مع المعلم — بما في ذلك الرسائل النصية والرسائل الصوتية وصور الواجبات التي يرسلها.",
-      "لمساعدة المعلم على التكيّف مع طفلك بمرور الوقت، نحتفظ أيضاً بملخّص تعليمي موجز ومتجدّد — بضع ملاحظات عن المواضيع التي تناولها طفلك وكيف يتعلّم على أفضل وجه (مثلاً أنه يستفيد من الشرح خطوة بخطوة). يصف الملخّص كيف يتعلّم طفلك، وليس إجاباته أبداً. نحتفظ به فقط ما دام طفلك يستخدم HomeTutor AI، ونحدّثه أثناء تعلّمه ليبقى موجزاً، ونحذفه مع باقي بياناته عند الحذف.",
+      "لكي يتمكّن المعلم من متابعة تقدّم طفلك ومرافقته خلال دروسه — بدلاً من البدء من الصفر في كل مرة — نحتفظ ببضع ملاحظات بسيطة عمّا كان يعمل عليه طفلك وما يساعده على التعلّم (مثلاً أنه يستفيد من الشرح خطوة بخطوة). هذه ملاحظات تعليمية فقط، وليست إجاباته أبداً، تُحفظ ما دام طفلك يستخدم HomeTutor AI وتُحذف في أي وقت بناءً على طلبك.",
       "لتشغيل الخدمة، تتم معالجة هذه المعلومات بواسطة مزودين موثوقين: Anthropic (معلم Claude للذكاء الاصطناعي)، وOpenAI (تفريغ الرسائل الصوتية عبر Whisper)، وMeta (مراسلة واتساب)، وSupabase (قاعدة بيانات آمنة، مخزَّنة في الاتحاد الأوروبي)، وVercel (استضافة التطبيق).",
       "تُستخدم بيانات طفلك فقط لتقديم وتحسين خدمة التعليم. لا تُباع أبداً، ولا تُشارك مع أطراف ثالثة لأغراض تسويقية.",
       "يمكنك طلب نسخة من بيانات طفلك، أو طلب حذفها، في أي وقت عبر التواصل معنا.",

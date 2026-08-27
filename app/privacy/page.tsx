@@ -33,7 +33,7 @@ export default function PrivacyPolicy() {
           <Li>Your child&apos;s WhatsApp phone number</Li>
           <Li>Parent/guardian name, email, and phone number</Li>
           <Li>Your child&apos;s conversation history with the tutor — text messages, voice notes, and photos of homework they send</Li>
-          <Li>A brief, ongoing learning summary — notes on the topics your child has worked on and how they learn best (never their answers); see below</Li>
+          <Li>A few notes on your child&apos;s progress — what they have been working on and what helps them learn (never their answers); see below</Li>
           <Li>Parental consent records, including a typed signature, timestamp, and IP address for record-keeping</Li>
         </ul>
 
@@ -50,12 +50,12 @@ export default function PrivacyPolicy() {
           <Li><strong>Vercel</strong> — application hosting</Li>
         </ul>
 
-        <H>Learning summary</H>
+        <H>Keeping track of progress</H>
         <P>
-          To help the tutor adapt to your child over time, we keep a short, ongoing summary of how your child learns —
-          for example, the topics they have worked on and that they do better with step-by-step explanations. It is generated
-          by Anthropic&apos;s Claude from past conversations and describes <em>how</em> your child learns — never their answers
-          or any solved homework. It is stored with your child&apos;s other data and is deleted together with it on request.
+          So the tutor can follow your child&apos;s progress and guide them through their classes — rather than starting from
+          scratch each session — it keeps a few simple notes on what your child has been working on and what helps them learn.
+          These notes are about how to support your child&apos;s learning — never their answers or any solved homework. They are
+          kept while your child uses HomeTutor AI and are removed with the rest of their data whenever you ask.
         </P>
 
         <H>Where your data is stored</H>
@@ -63,10 +63,10 @@ export default function PrivacyPolicy() {
 
         <H>How long we keep it</H>
         <P>
-          We keep your child&apos;s information — including their conversation history and learning summary — while your child is
-          an active user of HomeTutor AI. The learning summary is refreshed as your child learns, so it stays a brief, current
-          picture rather than growing without limit. You can request deletion of any of your child&apos;s data at any time, and
-          we remove it.
+          We keep your child&apos;s information — including their conversation history and progress notes — while your child is
+          an active user of HomeTutor AI. The progress notes are refreshed as your child learns, so they stay a brief, current
+          picture rather than a growing record. You can request deletion of any of your child&apos;s data at any time, and we
+          remove it.
         </P>
 
         <H>Your rights</H>
