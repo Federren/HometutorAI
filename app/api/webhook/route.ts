@@ -506,6 +506,35 @@ async function summarizeAndMerge(userPhone: string, profile: StudentProfile): Pr
   }
 }
 
+// ── Reset command (clean slate for demos / a fresh conversation) ──────────────
+
+// A slash command lets an advisor wipe their own state between demos so nothing
+// carries over. "/reset" clears the session + re-shows the welcome; "/reset all"
+// also wipes the long-term learning notes.
+function resetScope(text: string): "session" | "all" | null {
+  const t = text.trim().toLowerCase();
+  if (t === "/reset all" || t === "/reset-all" || t === "/forget") return "all";
+  if (t === "/reset" || t === "/new" || t === "/restart") return "session";
+  return null;
+}
+
+async function handleReset(phoneNumberId: string, userPhone: string, scope: "session" | "all"): Promise<void> {
+  // Clear the session window + onboarding/memory bookkeeping, and force the
+  // welcome to reappear on the next message so a demo starts truly fresh.
+  await redis.del(redisKey(userPhone), `onboarded:${userPhone}`, `mem:session:${userPhone}`, `mem:pending:${userPhone}`);
+  await redis.set(`force_welcome:${userPhone}`, "1", { ex: 3600 });
+  let msg = "🔄 Fresh start — brand-new conversation, nothing carried over. Say hi whenever you're ready.";
+  if (scope === "all") {
+    const profile = await getProfile(userPhone);
+    if (profile.id) {
+      await supabase.from("student_memory").delete().eq("student_id", profile.id);
+      _memCache.delete(profile.id);
+    }
+    msg = "🔄 Full reset — cleared this conversation and any long-term learning notes. Starting completely fresh.";
+  }
+  await sendWhatsAppMessage(phoneNumberId, userPhone, msg);
+}
+
 // ── Tool definitions ──────────────────────────────────────────────────────────
 
 const ALL_TOOLS: Anthropic.Tool[] = [
@@ -657,6 +686,13 @@ async function processMessage(
     const userText = message.text!.body;
     console.log(`Text from ${userPhone}: ${userText}`);
 
+    // Reset command — wipe your own state for a clean demo/new conversation.
+    const reset = resetScope(userText);
+    if (reset) {
+      await handleReset(phoneNumberId, userPhone, reset);
+      return;
+    }
+
     const videoId = extractYouTubeId(userText);
     if (videoId) {
       const reply = await handleYouTubeLink(userPhone, videoId, userText);
@@ -715,10 +751,14 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
   const memory = memOn && profile.id ? await getStudentMemory(profile.id) : null;
 
   // First-contact detection (once per number, before we log this message):
-  // mark atomically, then confirm there's genuinely no prior history so we
-  // don't "welcome" someone who was already chatting before this shipped.
+  // a "/reset" forces the welcome back; otherwise mark atomically and confirm
+  // there's genuinely no prior history so we don't "welcome" someone who was
+  // already chatting before this shipped.
   let firstMessage = false;
-  if ((await redis.set(`onboarded:${userPhone}`, "1", { nx: true })) === "OK") {
+  if (await redis.get(`force_welcome:${userPhone}`)) {
+    await redis.del(`force_welcome:${userPhone}`);
+    firstMessage = true;
+  } else if ((await redis.set(`onboarded:${userPhone}`, "1", { nx: true })) === "OK") {
     const { count } = await supabase.from("messages").select("id", { count: "exact", head: true }).eq("phone_number", userPhone);
     firstMessage = (count ?? 0) === 0;
   }
