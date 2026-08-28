@@ -21,7 +21,9 @@ const svgOutput = new SVG({ fontCache: "none" }); // inline glyph paths (no <use
 const mjDoc = mathjax.document("", { InputJax: texInput, OutputJax: svgOutput });
 
 // Render a single LaTeX expression to a PNG buffer, or null on any failure.
-export function renderEquationPng(tex: string): Buffer | null {
+// Typeset an equation to a self-contained SVG (glyphs as paths), plus its px
+// dimensions — so it can be rasterized alone or composited with a diagram.
+export function renderEquationSvg(tex: string): { svg: string; w: number; h: number } | null {
   try {
     const clean = tex.trim();
     if (!clean || clean.length > 500) return null;
@@ -41,11 +43,20 @@ export function renderEquationPng(tex: string): Buffer | null {
       .replace(/width="[\d.]+ex"/, `width="${wEx * EX}"`)
       .replace(/height="[\d.]+ex"/, `height="${hEx * EX}"`);
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="${GROUND}"/><g transform="translate(${pad}, ${pad})">${sized}</g></svg>`;
-
-    const png = new Resvg(svg, { fitTo: { mode: "zoom", value: 2 }, background: GROUND }).render().asPng();
-    return Buffer.from(png);
+    return { svg, w: W, h: H };
   } catch (e) {
     console.error("Equation render error:", e);
+    return null;
+  }
+}
+
+export function renderEquationPng(tex: string): Buffer | null {
+  const r = renderEquationSvg(tex);
+  if (!r) return null;
+  try {
+    return Buffer.from(new Resvg(r.svg, { fitTo: { mode: "zoom", value: 2 }, background: GROUND }).render().asPng());
+  } catch (e) {
+    console.error("Equation raster error:", e);
     return null;
   }
 }

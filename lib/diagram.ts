@@ -155,3 +155,33 @@ export function svgToPng(svg: string): Buffer {
   });
   return Buffer.from(resvg.render().asPng());
 }
+
+// Give a nested <svg> a position + display size (keeping its own viewBox), so
+// several self-contained SVGs can be laid out in one parent canvas.
+function placeSvg(svg: string, x: number, y: number, w: number, h: number): string {
+  return svg
+    .replace(/\swidth="[^"]*"/, "")
+    .replace(/\sheight="[^"]*"/, "")
+    .replace(/^<svg\b/, `<svg x="${x}" y="${y}" width="${w}" height="${h}"`);
+}
+
+// Stack several self-contained SVGs vertically (centered) into ONE PNG — used to
+// send a diagram and an equation as a single WhatsApp message instead of two.
+export function composeVerticalPng(items: { svg: string; w: number; h: number }[]): Buffer {
+  const PAD = 24, GAP = 22;
+  const maxW = Math.max(...items.map((i) => i.w));
+  const CW = maxW + PAD * 2;
+  let y = PAD;
+  const placed: string[] = [];
+  for (const it of items) {
+    placed.push(placeSvg(it.svg, (CW - it.w) / 2, y, it.w, it.h));
+    y += it.h + GAP;
+  }
+  const CH = y - GAP + PAD;
+  const parent = `<svg xmlns="http://www.w3.org/2000/svg" width="${CW}" height="${CH}" viewBox="0 0 ${CW} ${CH}"><rect width="${CW}" height="${CH}" fill="#FAF8F5"/>${placed.join("")}</svg>`;
+  const resvg = new Resvg(parent, {
+    fitTo: { mode: "width", value: CW * 2 },
+    font: { fontFiles: fontFiles(), loadSystemFonts: false, defaultFontFamily: "Noto Sans" },
+  });
+  return Buffer.from(resvg.render().asPng());
+}

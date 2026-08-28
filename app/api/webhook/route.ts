@@ -7,8 +7,8 @@ import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 import { planDiagramSvg } from "@/lib/diagram-plan";
-import { svgToPng, detectLang } from "@/lib/diagram";
-import { renderEquationPng, texToPlain } from "@/lib/mathrender";
+import { svgToPng, composeVerticalPng, detectLang } from "@/lib/diagram";
+import { renderEquationPng, renderEquationSvg, texToPlain } from "@/lib/mathrender";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -1245,35 +1245,39 @@ async function deliverReply(
 ): Promise<void> {
   // Pull out one display equation, if present.
   let text = reply;
-  let eqPng: Buffer | null = null;
+  let eqSvg: { svg: string; w: number; h: number } | null = null;
   const m = reply.match(EQ_RE);
   if (m) {
     const tex = (m[1] ?? m[2] ?? "").trim();
     text = reply.replace(EQ_RE_G, "").replace(/\n{3,}/g, "\n\n").trim();
-    if (mathOn) eqPng = renderEquationPng(tex);
-    if (!eqPng) {
+    if (mathOn) eqSvg = renderEquationSvg(tex);
+    if (!eqSvg) {
       const plain = texToPlain(tex);
       text = text ? `${text}\n\n${plain}` : plain; // readable fallback, no raw LaTeX
     }
   }
 
   const cap = (s: string) => s.slice(0, 1024);
-  let diagPng: Buffer | null = null;
-  if (mathOn && diagramSvg) {
-    try { diagPng = svgToPng(diagramSvg); } catch (e) { console.error("Diagram raster failed:", e); }
+
+  // Build AT MOST ONE image for the turn (billing is per-message from Oct 2026):
+  // a diagram + an equation are composited into a single image, not two.
+  let png: Buffer | null = null;
+  try {
+    if (mathOn && diagramSvg && eqSvg) {
+      png = composeVerticalPng([{ svg: diagramSvg, w: 440, h: 340 }, eqSvg]);
+    } else if (eqSvg) {
+      png = renderEquationPng((m![1] ?? m![2] ?? "").trim());
+    } else if (mathOn && diagramSvg) {
+      png = svgToPng(diagramSvg);
+    }
+  } catch (e) {
+    console.error("Image build failed, text fallback:", e);
+    png = null;
   }
 
-  if (eqPng) {
-    // Equation is the hero image carrying the text; diagram (if any) goes first.
-    if (diagPng) { try { await sendWhatsAppImage(phoneNumberId, to, diagPng, ""); } catch (e) { console.error("Diagram send failed:", e); } }
-    try { await sendWhatsAppImage(phoneNumberId, to, eqPng, cap(text)); return; }
-    catch (e) { console.error("Equation send failed, text fallback:", e); }
-    await sendWhatsAppMessage(phoneNumberId, to, text || reply);
-    return;
-  }
-  if (diagPng) {
-    try { await sendWhatsAppImage(phoneNumberId, to, diagPng, cap(text)); return; }
-    catch (e) { console.error("Diagram send failed, text fallback:", e); }
+  if (png) {
+    try { await sendWhatsAppImage(phoneNumberId, to, png, cap(text)); return; }
+    catch (e) { console.error("Image send failed, text fallback:", e); }
   }
   await sendWhatsAppMessage(phoneNumberId, to, text || reply);
 }
