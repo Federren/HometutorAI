@@ -154,37 +154,97 @@ const SAFETY_CATEGORIES = [
   "hate/threatening",
 ];
 
-async function checkSafety(phone: string, text: string): Promise<void> {
-  if (!text || text.trim().length < 2) return;
+// Scores we take seriously enough to look closer even below the flag threshold.
+const TRIGGER_SCORES = ["self-harm", "self-harm/intent", "self-harm/instructions", "sexual/minors", "harassment/threatening", "hate/threatening"];
+const TRIGGER_SCORE_MIN = 0.05;
+// Oblique wording that moderation misses ("can we talk about suicide?"), EN/HE/AR.
+const CRISIS_KEYWORDS = /\b(suicide|suicidal|kill (myself|him|her|them)|killing myself|want to die|end (my|it all) life|end it all|hurt (myself)|hurting myself|self[-\s]?harm|cut(ting)? myself|abused?|molest)\b|להתאבד|אובדני|לפגוע בעצמי|לשים קץ|רוצה למות|התעללות|אנס|انتحار|أؤذي نفسي|أقتل نفسي|أريد أن أموت|اعتداء|تحرش/i;
+// The tutor itself deciding to redirect to a crisis line is, in itself, a signal.
+const REPLY_CRISIS_MARKERS = /\b(988|116\s?123|1201|samaritans|crisis (lifeline|line|text)|suicide.{0,12}(crisis|lifeline)|ער"ן|eran)\b/i;
+
+// Durable record + best-effort real-time admin alert. Role-agnostic on purpose.
+async function raiseFlag(phone: string, content: string, categories: string): Promise<void> {
+  const profile = await getProfile(phone);
+  console.warn(`SAFETY FLAG — ${profile.name} (${phone}): ${categories}`);
+  await supabase.from("safety_flags").insert({ phone_number: phone, child_name: profile.name, content, categories });
+  const alert =
+    `⚠️ HomeTutor AI — safety alert\n\n` +
+    `Student: ${profile.name} (${phone})\n` +
+    `Concern: ${categories}\n\n` +
+    `Message:\n"${content}"`;
+  await sendWhatsAppMessage(ALERT_PHONE_NUMBER_ID, ADMIN_PHONE, alert);
+}
+
+const CRISIS_SYSTEM = `You are a safeguarding classifier for a tutoring service used by children. Read the recent conversation and decide whether the STUDENT may be at risk and a human should be alerted — signs of suicidal thoughts or self-harm, abuse or being unsafe, or an acute emotional crisis.
+
+Crucially, tell apart a PERSONAL disclosure from ACADEMIC discussion: a student asking about suicide, war, or abuse for a history, health, literature, biology, or psychology assignment is NOT a concern. Only raise concern when it reads as personal to this student. When genuinely ambiguous but it could be personal, choose "possible" — a dismissable heads-up is safer than a miss.
+
+Call assess with your verdict.`;
+
+const CRISIS_TOOL: Anthropic.Tool = {
+  name: "assess",
+  description: "Report whether the student may be at risk.",
+  input_schema: {
+    type: "object",
+    properties: {
+      concern: { type: "string", enum: ["none", "possible", "serious"] },
+      category: { type: "string", description: "e.g. self-harm, suicidal ideation, abuse, emotional crisis" },
+      reason: { type: "string", description: "one short sentence" },
+    },
+    required: ["concern"],
+  },
+};
+
+// Context-aware second pass: reads the recent conversation (not one message in
+// isolation) so oblique / multi-turn disclosures get caught. Returns a concern
+// or null. Cheap model; only called when a trigger fired.
+async function classifyCrisis(phone: string): Promise<{ category: string; reason: string } | null> {
   try {
-    const mod = await openai.moderations.create({ model: "omni-moderation-latest", input: text });
-    const result = mod.results?.[0];
-    if (!result) return;
-
-    const cats = result.categories as unknown as Record<string, boolean>;
-    const flagged = SAFETY_CATEGORIES.filter((c) => cats[c]);
-    if (flagged.length === 0) return;
-
-    const profile = await getProfile(phone);
-    console.warn(`SAFETY FLAG — ${profile.name} (${phone}): ${flagged.join(", ")}`);
-
-    // Durable record (works even if WhatsApp alert can't deliver).
-    await supabase.from("safety_flags").insert({
-      phone_number: phone,
-      child_name: profile.name,
-      content: text,
-      categories: flagged.join(", "),
+    const history = await getHistory(phone);
+    if (!history.length) return null;
+    const convo = history.slice(-8).map((m) => `${m.role === "user" ? "Student" : "Tutor"}: ${typeof m.content === "string" ? m.content : ""}`).join("\n");
+    const r = await anthropic.messages.create({
+      model: MEMORY_MODEL,
+      max_tokens: 200,
+      system: CRISIS_SYSTEM,
+      tools: [CRISIS_TOOL],
+      tool_choice: { type: "tool", name: "assess" },
+      messages: [{ role: "user", content: convo }],
     });
-
-    // Best-effort real-time alert to the admin.
-    const alert =
-      `⚠️ HomeTutor AI — safety alert\n\n` +
-      `Student: ${profile.name} (${phone})\n` +
-      `Flagged: ${flagged.join(", ")}\n\n` +
-      `Message:\n"${text}"`;
-    await sendWhatsAppMessage(ALERT_PHONE_NUMBER_ID, ADMIN_PHONE, alert);
+    const t = r.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+    const out = t?.input as { concern?: string; category?: string; reason?: string } | undefined;
+    if (!out || !out.concern || out.concern === "none") return null;
+    return { category: `${out.category || "safety concern"}${out.concern === "serious" ? " (serious)" : ""}`, reason: out.reason || "" };
   } catch (e) {
-    console.error("Safety check error:", e);
+    console.error("Crisis classify error:", e);
+    return null;
+  }
+}
+
+// Full safety pass on one exchange. Explicit moderation flags immediately; an
+// elevated-but-sub-threshold score, a crisis keyword, or the tutor redirecting
+// to a crisis line triggers the context-aware classifier.
+async function assessSafety(phone: string, message: string, reply: string): Promise<void> {
+  if (!message || message.trim().length < 2) return;
+  try {
+    const mod = await openai.moderations.create({ model: "omni-moderation-latest", input: message });
+    const result = mod.results?.[0];
+    const cats = (result?.categories ?? {}) as unknown as Record<string, boolean>;
+    const scores = (result?.category_scores ?? {}) as unknown as Record<string, number>;
+
+    const explicit = SAFETY_CATEGORIES.filter((c) => cats[c]);
+    if (explicit.length) { await raiseFlag(phone, message, explicit.join(", ")); return; }
+
+    const elevated =
+      TRIGGER_SCORES.some((c) => (scores[c] ?? 0) > TRIGGER_SCORE_MIN) ||
+      CRISIS_KEYWORDS.test(message) ||
+      REPLY_CRISIS_MARKERS.test(reply);
+    if (!elevated) return;
+
+    const verdict = await classifyCrisis(phone);
+    if (verdict) await raiseFlag(phone, message, verdict.reason ? `${verdict.category} — ${verdict.reason}` : verdict.category);
+  } catch (e) {
+    console.error("Safety assess error:", e);
   }
 }
 
@@ -199,6 +259,19 @@ interface StudentProfile {
   subjects?: string[];
   language: string;
   tone: string;
+  country?: string;
+}
+
+// Country from the phone's dialing code — used to give the right local crisis
+// line if a student is ever in distress.
+function countryFromPhone(phone: string): string | undefined {
+  const p = phone.replace(/\D/g, "");
+  if (p.startsWith("972")) return "Israel";
+  if (p.startsWith("44")) return "United Kingdom";
+  if (p.startsWith("353")) return "Ireland";
+  if (p.startsWith("61")) return "Australia";
+  if (p.startsWith("1")) return "United States/Canada";
+  return undefined;
 }
 
 const DEFAULT_PROFILE: StudentProfile = {
@@ -230,6 +303,7 @@ async function getAllProfiles(): Promise<Record<string, StudentProfile>> {
   for (const row of data) {
     map[row.phone_number] = {
       id: row.id,
+      country: countryFromPhone(row.phone_number),
       name: row.name,
       age: row.age ?? undefined,
       grade: row.grade ?? undefined,
@@ -294,6 +368,15 @@ Helping students write math on their phone:
 - Typing math on a phone is hard. When a student is working through multi-step algebra or is clearly struggling to type an expression, proactively offer the easiest path: "You can just snap a photo of your working and send it to me" — you can read handwritten math from a photo. A voice note works too.
 - Early in a math conversation, if useful, teach the simple shorthand once: write ^ for powers (a^2), / for fractions (3/4), and sqrt() for roots (sqrt(3)). Reassure them their notation doesn't have to be perfect — you'll understand.
 
+Student wellbeing and crisis:
+- You are a tutor, not a counsellor. If a student expresses personal distress, self-harm or suicidal thoughts, abuse, or being unsafe, stop tutoring and respond with warmth and care. Take them seriously, but do not probe for details or try to counsel them yourself.
+- First distinguish personal from academic — "suicide" or "abuse" can come up for a history, health, literature, or psychology assignment. If it's a school topic, help normally. If it's personal, gently point them to a crisis line for THEIR country (shown in their profile) in their language, and encourage them to reach a trusted adult:
+  - Israel: ERAN — 1201 (24/7).
+  - United Kingdom / Ireland: Samaritans — 116 123 (free, 24/7).
+  - United States / Canada: 988 Suicide & Crisis Lifeline — call or text 988.
+  - If the country is unknown or not listed, encourage them to contact local emergency services or a trusted adult right away.
+- Keep it brief, kind, and non-clinical, and make clear they can come back for schoolwork anytime.
+
 YouTube tool guidance:
 - Use find_youtube_video when a visual or worked example would genuinely help more than a text exchange (e.g. complex diagrams, physical processes, worked math problems, historical events).
 - Do NOT use it for every question — only when a video adds clear value.
@@ -313,6 +396,7 @@ function buildSystemPrompt(profile: StudentProfile, memory?: StudentMemory | nul
     profile.stream ? `- School stream: ${profile.stream}` : null,
     profile.subjects ? `- Subjects: ${profile.subjects.join(", ")}` : null,
     `- Language: ${profile.language}`,
+    profile.country ? `- Country: ${profile.country}` : null,
     `- Tone: ${profile.tone}`,
   ].filter(Boolean).join("\n");
 
@@ -768,7 +852,6 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
 
   const subject = detectSubject(userMessage);
   logMessage(userPhone, "user", userMessage, subject).catch(e => console.error("Log error:", e));
-  checkSafety(userPhone, userMessage).catch(e => console.error("Safety error:", e));
 
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
@@ -818,6 +901,7 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
       await saveHistory(userPhone, [...updatedHistory, { role: "assistant", content: reply }]);
       logMessage(userPhone, "assistant", reply, subject).catch(e => console.error("Log error:", e));
       scheduleMemoryUpdate(userPhone, profile, memOn);
+      assessSafety(userPhone, userMessage, reply).catch(e => console.error("Safety error:", e));
       return reply;
     }
   }
@@ -828,6 +912,7 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
   await saveHistory(userPhone, [...updatedHistory, { role: "assistant", content: reply }]);
   logMessage(userPhone, "assistant", reply, subject).catch(e => console.error("Log error:", e));
   scheduleMemoryUpdate(userPhone, profile, memOn);
+  assessSafety(userPhone, userMessage, reply).catch(e => console.error("Safety error:", e));
   return reply;
 }
 
@@ -932,7 +1017,7 @@ async function getClaudeImageResponse(
   const imageSubject = detectSubject(caption ?? "");
   logMessage(userPhone, "user", imageLabel, imageSubject).catch(e => console.error("Log error:", e));
   logMessage(userPhone, "assistant", reply, imageSubject).catch(e => console.error("Log error:", e));
-  if (caption) checkSafety(userPhone, caption).catch(e => console.error("Safety error:", e));
+  assessSafety(userPhone, caption ?? "[photo]", reply).catch(e => console.error("Safety error:", e));
 
   return reply;
 }
