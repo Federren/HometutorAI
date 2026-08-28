@@ -305,7 +305,7 @@ Sefaria tool guidance:
 - After fetching a text, quote the relevant line briefly, then ask the student what they notice or what they think it means — never explain it for them first.
 - Respond in Hebrew when discussing Hebrew texts with Hebrew-language students.`;
 
-function buildSystemPrompt(profile: StudentProfile, memory?: StudentMemory | null): string {
+function buildSystemPrompt(profile: StudentProfile, memory?: StudentMemory | null, firstMessage = false): string {
   const lines = [
     `- Name: ${profile.name}`,
     profile.age ? `- Age: ${profile.age}` : null,
@@ -319,7 +319,22 @@ function buildSystemPrompt(profile: StudentProfile, memory?: StudentMemory | nul
   return `${BASE_PROMPT}
 
 Student profile — calibrate your vocabulary, examples, and language accordingly:
-${lines}${memorySection(memory)}`;
+${lines}${memorySection(memory)}${welcomeSection(profile, firstMessage)}`;
+}
+
+// On a student's very first message, open with a brief orientation to what they
+// can do — a baseline "here's how to use me", produced naturally in their
+// language. (The capabilities themselves also surface contextually mid-chat.)
+function welcomeSection(profile: StudentProfile, firstMessage: boolean): string {
+  if (!firstMessage) return "";
+  return `
+
+This is ${profile.name}'s FIRST message to you. Open your reply with a short, warm welcome that briefly orients them, then engage with what they said. In their language, and in just a few short lines, let them know they can:
+- ask you about homework or any school subject;
+- send a PHOTO of their homework or worksheet — you can read handwriting and printed pages;
+- send a VOICE note instead of typing;
+- and that you can also sketch simple diagrams, show clean step-by-step math, and find a short explainer video when it helps.
+Keep it light and inviting — don't overwhelm or lecture. Then invite them to start, or answer their question if they already asked one.`;
 }
 
 // Long-term memory injected as PRIVATE background. Guardrails: use it to adapt
@@ -698,6 +713,16 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
   const profile = await getProfile(userPhone);
   const memOn = memoryEnabledFor(userPhone);
   const memory = memOn && profile.id ? await getStudentMemory(profile.id) : null;
+
+  // First-contact detection (once per number, before we log this message):
+  // mark atomically, then confirm there's genuinely no prior history so we
+  // don't "welcome" someone who was already chatting before this shipped.
+  let firstMessage = false;
+  if ((await redis.set(`onboarded:${userPhone}`, "1", { nx: true })) === "OK") {
+    const { count } = await supabase.from("messages").select("id", { count: "exact", head: true }).eq("phone_number", userPhone);
+    firstMessage = (count ?? 0) === 0;
+  }
+
   const history = await getHistory(userPhone);
   const updatedHistory: Message[] = [...history, { role: "user", content: userMessage }];
 
@@ -708,7 +733,7 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 512,
-    system: buildSystemPrompt(profile, memory),
+    system: buildSystemPrompt(profile, memory, firstMessage),
     tools: ALL_TOOLS,
     messages: updatedHistory,
   });
@@ -739,7 +764,7 @@ async function getClaudeResponse(userPhone: string, userMessage: string): Promis
       const finalResponse = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
         max_tokens: 512,
-        system: buildSystemPrompt(profile, memory),
+        system: buildSystemPrompt(profile, memory, firstMessage),
         tools: ALL_TOOLS,
         messages: [
           ...updatedHistory,

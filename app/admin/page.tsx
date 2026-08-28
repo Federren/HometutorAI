@@ -32,7 +32,7 @@ export default async function AdminDashboard() {
   const [waitlistRes, profilesRes, msgsRes, consentRes] = await Promise.all([
     supabase.from("waitlist").select("id,name,email,language,source,created_at").order("created_at", { ascending: false }),
     supabase.from("profiles").select("id,name,phone_number,age,grade,active,role").order("name"),
-    supabase.from("messages").select("child_name,created_at"),
+    supabase.from("messages").select("phone_number,role,created_at,subject_detected"),
     supabase.from("parental_consent").select("id,child_name,child_age,child_grade,child_whatsapp,parent_name,parent_phone,parent_email,language,signed_name,signed_at,enrolled_at").order("signed_at", { ascending: false }),
   ]);
 
@@ -40,14 +40,27 @@ export default async function AdminDashboard() {
   const profiles = profilesRes.data ?? [];
   const consents = consentRes.error ? null : consentRes.data ?? [];
 
-  // Aggregate activity per student from the message log.
-  const activity = new Map<string, { count: number; last: string }>();
+  // Aggregate activity per person (keyed by phone) from the message log.
+  const now = Date.now();
+  const WEEK = 7 * 24 * 3600 * 1000;
+  type Agg = { count: number; sent: number; last: string; days: Set<string>; week: number; subjects: Map<string, number> };
+  const activity = new Map<string, Agg>();
   for (const m of msgsRes.data ?? []) {
-    const a = activity.get(m.child_name) ?? { count: 0, last: "" };
+    const key = m.phone_number as string;
+    if (!key) continue;
+    const a = activity.get(key) ?? { count: 0, sent: 0, last: "", days: new Set<string>(), week: 0, subjects: new Map<string, number>() };
     a.count += 1;
-    if ((m.created_at ?? "") > a.last) a.last = m.created_at ?? "";
-    activity.set(m.child_name, a);
+    if (m.role === "user") a.sent += 1;
+    const ts = (m.created_at as string) ?? "";
+    if (ts > a.last) a.last = ts;
+    if (ts) { a.days.add(ts.slice(0, 10)); if (now - new Date(ts).getTime() < WEEK) a.week += 1; }
+    const subj = m.subject_detected as string | null;
+    if (subj) a.subjects.set(subj, (a.subjects.get(subj) ?? 0) + 1);
+    activity.set(key, a);
   }
+  const topSubject = (a?: Agg): string =>
+    !a || a.subjects.size === 0 ? "—" : [...a.subjects.entries()].sort((x, y) => y[1] - x[1])[0][0];
+  const activeThisWeek = profiles.filter((p) => p.active && (activity.get(p.phone_number as string)?.week ?? 0) > 0).length;
 
   // Safety flags — the table may not exist yet; degrade gracefully.
   const sf = await supabase
@@ -70,9 +83,9 @@ export default async function AdminDashboard() {
         {/* Summary */}
         <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
           {[
-            { label: "Waitlist signups", value: waitlist.length },
-            { label: "Consents signed", value: consents ? consents.length : "—" },
             { label: "Students", value: profiles.filter((p) => p.active).length },
+            { label: "Active this week", value: activeThisWeek },
+            { label: "Consents signed", value: consents ? consents.length : "—" },
             { label: "Safety flags", value: flags ? flags.length : "—" },
           ].map((s) => (
             <div key={s.label} style={{ ...card, flex: "1 1 160px", marginBottom: 0, textAlign: "center" }}>
@@ -161,22 +174,28 @@ export default async function AdminDashboard() {
         {/* Students & activity */}
         <section style={card}>
           <h2 style={h2}>Students &amp; activity</h2>
+          <p style={{ fontSize: 12, color: "#9a938a", margin: "-6px 0 12px" }}>
+            Sent = messages the student wrote · 7d = messages in the last 7 days · Active days = distinct days used · Subject = what they use it for most
+          </p>
           <div style={{ overflowX: "auto" }}>
             <table style={table}>
-              <thead><tr><th style={th}>Name</th><th style={th}>Role</th><th style={th}>Phone</th><th style={th}>Age</th><th style={th}>Grade</th><th style={th}>Messages</th><th style={th}>Last active</th><th style={th}>Status</th><th style={th}></th></tr></thead>
+              <thead><tr><th style={th}>Name</th><th style={th}>Role</th><th style={th}>Grade</th><th style={th}>Msgs</th><th style={th}>Sent</th><th style={th}>7d</th><th style={th}>Active days</th><th style={th}>Subject</th><th style={th}>Last active</th><th style={th}>Status</th><th style={th}></th></tr></thead>
               <tbody>
                 {profiles.map((p, i) => {
-                  const a = activity.get(p.name);
+                  const a = activity.get(p.phone_number as string);
                   const role = (p.role as string) || "student";
                   const roleColor = role === "teacher" ? "#6197B0" : role === "advisor" ? "#C8922A" : role === "tester" ? "#7A7168" : "#1B3D2F";
+                  const recent = (a?.week ?? 0) > 0;
                   return (
                     <tr key={i}>
                       <td style={td}>{p.name}</td>
                       <td style={td}><span style={{ ...pill, background: "#F2EEE6", color: roleColor }}>{role}</span></td>
-                      <td style={td}>{p.phone_number}</td>
-                      <td style={td}>{p.age ?? "—"}</td>
                       <td style={td}>{p.grade ?? "—"}</td>
-                      <td style={td}>{a?.count ?? 0}</td>
+                      <td style={{ ...td, fontWeight: 600 }}>{a?.count ?? 0}</td>
+                      <td style={td}>{a?.sent ?? 0}</td>
+                      <td style={{ ...td, color: recent ? "#1B3D2F" : "#B7A99A", fontWeight: recent ? 600 : 400 }}>{a?.week ?? 0}</td>
+                      <td style={td}>{a?.days.size ?? 0}</td>
+                      <td style={td}>{topSubject(a)}</td>
                       <td style={td}>{fmt(a?.last)}</td>
                       <td style={td}>
                         <span style={{ ...pill, background: p.active ? "#E8F0EC" : "#F2EEE6", color: p.active ? "#1B3D2F" : "#7A7168" }}>
