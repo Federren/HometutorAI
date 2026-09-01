@@ -80,7 +80,7 @@ export default function Guide() {
           <Li>Take a second to <strong>think before you answer</strong> — the tricky ones are the ones worth it.</Li>
         </ul>
 
-        <P style={{ marginTop: 24 }}>
+        <P>
           And if you&apos;re ever having a hard time with something that <em>isn&apos;t</em> schoolwork, you can tell me — I&apos;ll
           help you find the right person to talk to.
         </P>
