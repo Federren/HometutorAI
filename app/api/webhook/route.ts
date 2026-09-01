@@ -142,17 +142,18 @@ async function logMessage(
 const ADMIN_PHONE = "972526101313";              // Roi
 const ALERT_PHONE_NUMBER_ID = "1116534344880535"; // production number
 
-// High-concern categories only. Academic "violence" (history/science) is
-// deliberately excluded to avoid false alarms on war/biology topics.
-const SAFETY_CATEGORIES = [
+// Instant-flag categories: unambiguous, and you never want a delay on them.
+const INSTANT_CATEGORIES = [
   "self-harm",
   "self-harm/intent",
   "self-harm/instructions",
   "sexual",
   "sexual/minors",
-  "harassment/threatening",
-  "hate/threatening",
 ];
+// Context-checked categories: prone to ACADEMIC false positives (war/history/
+// literature — e.g. "Invade Britain" in a WW2 lesson), so these go through the
+// context classifier instead of flagging immediately.
+const CONTEXT_CATEGORIES = ["harassment/threatening", "hate/threatening"];
 
 // Scores we take seriously enough to look closer even below the flag threshold.
 const TRIGGER_SCORES = ["self-harm", "self-harm/intent", "self-harm/instructions", "sexual/minors", "harassment/threatening", "hate/threatening"];
@@ -175,9 +176,11 @@ async function raiseFlag(phone: string, content: string, categories: string): Pr
   await sendWhatsAppMessage(ALERT_PHONE_NUMBER_ID, ADMIN_PHONE, alert);
 }
 
-const CRISIS_SYSTEM = `You are a safeguarding classifier for a tutoring service used by children. Read the recent conversation and decide whether the STUDENT may be at risk and a human should be alerted — signs of suicidal thoughts or self-harm, abuse or being unsafe, or an acute emotional crisis.
+const CRISIS_SYSTEM = `You are a safeguarding classifier for a tutoring service used by children. Read the recent conversation and decide whether something genuinely concerning is happening that a human should review:
+- the STUDENT may be AT RISK — suicidal thoughts or self-harm, abuse or being unsafe, or an acute emotional crisis; OR
+- the student is expressing a GENUINE threat of violence toward others, or hateful/harassing content aimed at a real person or group.
 
-Crucially, tell apart a PERSONAL disclosure from ACADEMIC discussion: a student asking about suicide, war, or abuse for a history, health, literature, biology, or psychology assignment is NOT a concern. Only raise concern when it reads as personal to this student. When genuinely ambiguous but it could be personal, choose "possible" — a dismissable heads-up is safer than a miss.
+Crucially, tell apart a PERSONAL / REAL expression from ACADEMIC discussion: a student discussing war, suicide, violence, or prejudice for a history, health, literature, or current-affairs assignment is NOT a concern (for example, "Germany wanted to invade Britain" in a WW2 lesson is completely fine). Only raise concern when it reads as genuinely personal or real, not schoolwork. When ambiguous but it could be real, choose "possible" — a dismissable heads-up is safer than a miss.
 
 Call assess with your verdict.`;
 
@@ -232,10 +235,14 @@ async function assessSafety(phone: string, message: string, reply: string): Prom
     const cats = (result?.categories ?? {}) as unknown as Record<string, boolean>;
     const scores = (result?.category_scores ?? {}) as unknown as Record<string, number>;
 
-    const explicit = SAFETY_CATEGORIES.filter((c) => cats[c]);
-    if (explicit.length) { await raiseFlag(phone, message, explicit.join(", ")); return; }
+    // Unambiguous categories flag immediately.
+    const instant = INSTANT_CATEGORIES.filter((c) => cats[c]);
+    if (instant.length) { await raiseFlag(phone, message, instant.join(", ")); return; }
 
+    // Everything else — including threat/hate hits (academic-prone) — goes to
+    // the context classifier, which tells a school topic from a real concern.
     const elevated =
+      CONTEXT_CATEGORIES.some((c) => cats[c]) ||
       TRIGGER_SCORES.some((c) => (scores[c] ?? 0) > TRIGGER_SCORE_MIN) ||
       CRISIS_KEYWORDS.test(message) ||
       REPLY_CRISIS_MARKERS.test(reply);

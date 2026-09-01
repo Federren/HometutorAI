@@ -4,6 +4,7 @@ import InviteAdvisor from "./InviteAdvisor";
 import AddStudent from "./AddStudent";
 import EnrollButton from "./EnrollButton";
 import DeleteButton from "./DeleteButton";
+import DismissFlagButton from "./DismissFlagButton";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -65,10 +66,36 @@ export default async function AdminDashboard() {
   // Safety flags — the table may not exist yet; degrade gracefully.
   const sf = await supabase
     .from("safety_flags")
-    .select("child_name,categories,content,created_at,reviewed")
+    .select("id,phone_number,child_name,categories,content,created_at,reviewed")
     .order("created_at", { ascending: false })
     .limit(50);
   const flags = sf.error ? null : sf.data ?? [];
+
+  // Pull a little surrounding conversation for each flag so it can be judged in context.
+  const flagCtx: Record<string, { role: string; content: string }[]> = {};
+  if (flags && flags.length) {
+    await Promise.all(
+      flags.map(async (f) => {
+        const t = new Date(f.created_at as string).getTime();
+        const { data } = await supabase
+          .from("messages")
+          .select("role,content,created_at")
+          .eq("phone_number", f.phone_number as string)
+          .gte("created_at", new Date(t - 150000).toISOString())
+          .lte("created_at", new Date(t + 45000).toISOString())
+          .order("created_at", { ascending: true })
+          .limit(12);
+        flagCtx[f.id as string] = (data ?? []).map((m) => ({ role: m.role as string, content: (m.content as string) ?? "" }));
+      })
+    );
+  }
+  const flagSeverity = (categories: string) => {
+    const c = (categories || "").toLowerCase();
+    if (c.includes("self-harm") || c.includes("sexual") || c.includes("suicid") || c.includes("serious"))
+      return { label: "high", color: "#b3261e", bg: "#FBE9E7" };
+    return { label: "review", color: "#9a7415", bg: "#FBF3DD" };
+  };
+  const openFlags = flags ? flags.filter((f) => !f.reviewed).length : 0;
 
   return (
     <main style={{ minHeight: "100vh", background: "#FAF8F5", fontFamily: "system-ui, sans-serif" }}>
@@ -86,7 +113,7 @@ export default async function AdminDashboard() {
             { label: "Students", value: profiles.filter((p) => p.active).length },
             { label: "Active this week", value: activeThisWeek },
             { label: "Consents signed", value: consents ? consents.length : "—" },
-            { label: "Safety flags", value: flags ? flags.length : "—" },
+            { label: "Safety flags (open)", value: flags ? openFlags : "—" },
           ].map((s) => (
             <div key={s.label} style={{ ...card, flex: "1 1 160px", marginBottom: 0, textAlign: "center" }}>
               <div style={{ fontSize: 28, fontWeight: 800, color: "#1B3D2F" }}>{s.value}</div>
@@ -221,20 +248,38 @@ export default async function AdminDashboard() {
           ) : flags.length === 0 ? (
             <div style={{ fontSize: 13, color: "#7A7168" }}>No safety flags — all clear.</div>
           ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={table}>
-                <thead><tr><th style={th}>When</th><th style={th}>Student</th><th style={th}>Categories</th><th style={th}>Message</th></tr></thead>
-                <tbody>
-                  {flags.map((f, i) => (
-                    <tr key={i}>
-                      <td style={td}>{fmt(f.created_at)}</td>
-                      <td style={td}>{f.child_name}</td>
-                      <td style={td}><span style={{ ...pill, background: "#FBE9E7", color: "#b3261e" }}>{f.categories}</span></td>
-                      <td style={{ ...td, maxWidth: 340 }}>{f.content}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {[...flags].sort((a, b) => Number(!!a.reviewed) - Number(!!b.reviewed)).map((f, i) => {
+                const sev = flagSeverity(f.categories as string);
+                const ctx = flagCtx[f.id as string] ?? [];
+                const done = !!f.reviewed;
+                return (
+                  <div key={i} style={{ border: `1px solid ${done ? "#EDE7DC" : "#F1C9C4"}`, borderRadius: 12, padding: 14, background: done ? "#FBFAF7" : "#FFF", opacity: done ? 0.72 : 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+                      <span style={{ ...pill, background: done ? "#F2EEE6" : sev.bg, color: done ? "#7A7168" : sev.color }}>{done ? "reviewed" : sev.label}</span>
+                      <strong style={{ fontSize: 14 }}>{f.child_name}</strong>
+                      <span style={{ fontSize: 12.5, color: "#7A7168" }}>{fmt(f.created_at)}</span>
+                      <span style={{ fontSize: 12.5, color: "#9a938a" }}>· {f.categories}</span>
+                      <span style={{ marginLeft: "auto" }}>{!done && <DismissFlagButton id={f.id as string} />}</span>
+                    </div>
+                    {ctx.length > 0 ? (
+                      <div style={{ background: "#FAF8F5", border: "1px solid #F2EEE6", borderRadius: 8, padding: "8px 10px", fontSize: 12.5, lineHeight: 1.55 }}>
+                        {ctx.map((m, j) => {
+                          const isFlagged = m.role === "user" && m.content.trim() === String(f.content).trim();
+                          return (
+                            <div key={j} style={{ margin: "2px 0", background: isFlagged ? "#FBE9E7" : "transparent", borderRadius: 4, padding: isFlagged ? "2px 5px" : "0 5px" }}>
+                              <span style={{ color: m.role === "user" ? "#1B3D2F" : "#9a938a", fontWeight: 600 }}>{m.role === "user" ? "Student" : "Tutor"}: </span>
+                              <span style={{ color: "#3a352e" }}>{m.content}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 13, color: "#3a352e" }}>&ldquo;{f.content}&rdquo;</div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>
