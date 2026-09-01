@@ -20,7 +20,7 @@ const T: Record<Lang, {
   consentH: string; consents: string[];
   sigH: string; sigLabel: string; dateLabel: string;
   submit: string; sending: string; success: string; required: string;
-  privacy: string; footer: string;
+  privacy: string; guide: string; footer: string;
 }> = {
   en: {
     dir: "ltr",
@@ -62,7 +62,7 @@ const T: Record<Lang, {
     submit: "Submit consent", sending: "Submitting…",
     success: "Thank you — your sign-up has been received. We'll email you shortly to activate your child's tutor.",
     required: "Please complete all fields and tick all three consent boxes.",
-    privacy: "Privacy Policy",
+    privacy: "Privacy Policy", guide: "Student guide",
     footer: "HomeTutor AI · Private Pilot · hello@hometutorai.io",
   },
   he: {
@@ -105,7 +105,7 @@ const T: Record<Lang, {
     submit: "שליחת הסכמה", sending: "שולח…",
     success: "תודה — ההרשמה התקבלה. נשלח לכם מייל בקרוב כדי להפעיל את המורה של ילדכם.",
     required: "יש למלא את כל השדות ולסמן את שלוש תיבות ההסכמה.",
-    privacy: "מדיניות פרטיות",
+    privacy: "מדיניות פרטיות", guide: "מדריך לתלמיד",
     footer: "HomeTutor AI · פיילוט פרטי · hello@hometutorai.io",
   },
   ar: {
@@ -148,7 +148,7 @@ const T: Record<Lang, {
     submit: "إرسال الموافقة", sending: "جارٍ الإرسال…",
     success: "شكراً لك — تم استلام تسجيلك. سنرسل لك بريداً إلكترونياً قريباً لتفعيل معلّم طفلك.",
     required: "يرجى إكمال جميع الحقول ووضع علامة في مربعات الموافقة الثلاثة.",
-    privacy: "سياسة الخصوصية",
+    privacy: "سياسة الخصوصية", guide: "دليل الطالب",
     footer: "HomeTutor AI · نسخة تجريبية خاصة · hello@hometutorai.io",
   },
 };
@@ -303,6 +303,8 @@ export default function ConsentPage() {
 
             <div style={{ textAlign: "center", marginTop: 18, fontSize: 12, color: "#9a938a" }}>
               <a href="/privacy" style={{ color: "#7A7168" }}>{t.privacy}</a>
+              <span style={{ color: "#C9C1B5" }}> · </span>
+              <a href="/guide" style={{ color: "#7A7168" }}>{t.guide}</a>
               <div style={{ marginTop: 6 }}>{t.footer}</div>
             </div>
           </form>

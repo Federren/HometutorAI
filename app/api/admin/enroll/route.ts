@@ -21,6 +21,7 @@ function enrolledEmail(lang: string, parentName: string, childName: string): { s
         <p>שלום ${parentName},</p>
         <p>חדשות טובות — המורה הפרטי של <b>${childName}</b> פעיל עכשיו בוואטסאפ! 🎉</p>
         <p>כדי להתחיל, ${childName} צריך/ה לשלוח הודעת "היי" למספר ${num} בוואטסאפ. המורה יקבל אותם בברכה וילווה אותם בשיעורי הבית בעזרת שאלות — לא סתם תשובות. אפשר לשלוח טקסט, הודעה קולית, או תצלום של דף שיעורי הבית.</p>
+        <p>חדשים בזה? הנה מדריך קצר ל-${childName} איך להפיק את המקסימום מהמורה: <a href="https://hometutorai.io/guide" style="color:#1B3D2F">hometutorai.io/guide</a></p>
         <p>לכל שאלה, אפשר להשיב למייל זה או לפנות ל-hello@hometutorai.io.</p>
         <p style="color:#1B3D2F;font-weight:600">צוות HomeTutor AI</p>
       </div>`,
@@ -33,6 +34,7 @@ function enrolledEmail(lang: string, parentName: string, childName: string): { s
         <p>مرحباً ${parentName},</p>
         <p>خبر رائع — أصبح المعلّم الخاص بـ <b>${childName}</b> مفعّلاً الآن على واتساب! 🎉</p>
         <p>للبدء، على ${childName} إرسال رسالة "مرحباً" إلى الرقم ${num} على واتساب. سيرحّب بهم المعلّم ويرشدهم في واجباتهم بالأسئلة — وليس بالإجابات المباشرة. يمكن إرسال نص أو رسالة صوتية أو صورة لصفحة الواجب.</p>
+        <p>هل هذه أول مرة؟ إليك دليلاً سريعاً لـ ${childName} حول تحقيق أقصى استفادة من المعلّم: <a href="https://hometutorai.io/guide" style="color:#1B3D2F">hometutorai.io/guide</a></p>
         <p>لأي استفسار، ردّوا على هذا البريد أو راسلونا على hello@hometutorai.io.</p>
         <p style="color:#1B3D2F;font-weight:600">فريق HomeTutor AI</p>
       </div>`,
@@ -44,6 +46,7 @@ function enrolledEmail(lang: string, parentName: string, childName: string): { s
       <p>Hi ${parentName},</p>
       <p>Great news — <b>${childName}</b>'s personal tutor is now active on WhatsApp! 🎉</p>
       <p>To get started, ${childName} just needs to send a "hi" to ${num} on WhatsApp. The tutor will greet them and guide them through their homework with questions — never just the answers. They can send text, a voice note, or a photo of their homework page.</p>
+      <p>New to it? Here's a quick guide for ${childName} on getting the most out of their tutor: <a href="https://hometutorai.io/guide" style="color:#1B3D2F">hometutorai.io/guide</a></p>
       <p>Any questions, just reply to this email or reach us at hello@hometutorai.io.</p>
       <p style="color:#1B3D2F;font-weight:600">The HomeTutor AI team</p>
     </div>`,
