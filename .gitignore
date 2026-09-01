@@ -14,3 +14,5 @@ out/
 .DS_Store
 *.pem
 npm-debug.log*
+.vercel
+WEBSITE_TASKS.md
