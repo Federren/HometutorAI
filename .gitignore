@@ -16,3 +16,5 @@ out/
 npm-debug.log*
 .vercel
 WEBSITE_TASKS.md
+STATUS.md
+.claude/settings.local.json

@@ -1,0 +1,71 @@
+<title>Question to Diagram</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{--ground:#FAF8F5;--card:#FFF;--ink:#1B2820;--muted:#8A8278;--green:#1B3D2F;--gold:#B4831F;--border:#E7E1D6;--schema-bg:#F3EFE7;--offbg:#F1EDE5;}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ground:#141F19;--card:#1B2821;--ink:#ECE8DF;--muted:#9C968A;--green:#83B29B;--gold:#E0B860;--border:#2B3A32;--schema-bg:#121B16;--offbg:#202C25;}}
+  :root[data-theme="dark"]{--ground:#141F19;--card:#1B2821;--ink:#ECE8DF;--muted:#9C968A;--green:#83B29B;--gold:#E0B860;--border:#2B3A32;--schema-bg:#121B16;--offbg:#202C25;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;line-height:1.6}
+  .wrap{max-width:900px;margin:0 auto;padding:56px 24px 96px}
+  .eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);margin:0 0 14px}
+  h1{font-family:"Fraunces",Georgia,serif;font-weight:600;font-size:clamp(28px,5vw,42px);line-height:1.1;margin:0 0 14px;text-wrap:balance}
+  .lede{font-size:17px;color:var(--muted);max-width:64ch;margin:0 0 40px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  @media(max-width:680px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:14px}
+  .q{font-size:16px;font-weight:500;color:var(--ink)}
+  .badge{align-self:flex-start;font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:3px 10px;border-radius:999px;font-weight:600}
+  .badge.on{background:var(--green);color:#FAF8F5}
+  .badge.off{background:var(--offbg);color:var(--muted)}
+  .schema{font-family:"IBM Plex Mono",monospace;font-size:12.5px;background:var(--schema-bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin:0;overflow-x:auto;color:var(--ink)}
+  .svgbox{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#FAF8F5}
+  .svgbox svg{display:block;width:100%;height:auto}
+  .declined{color:var(--muted);font-size:14.5px;margin:0;font-style:italic}
+</style>
+<div class="wrap">
+  <p class="eyebrow">HomeTutor AI · Prototype · Step 2 of 4</p>
+  <h1>From a student's question to a diagram</h1>
+  <p class="lede">A dedicated extraction step reads the question and either produces a structured spec of the <em>given</em> measurements, or decides no diagram helps. Real questions below — English and Hebrew — including cases it correctly leaves as text.</p>
+  <div class="grid"><article class="card">
+    <div class="q" dir="ltr">Find the area of a trapezoid with parallel sides 9 cm and 5 cm and a height of 6 cm.</div>
+    <span class="badge on">Diagram</span>
+    <pre class="schema">{"shape":"trapezoid","a":9,"b":5,"h":6,"unit":"cm"}</pre><div class="svgbox"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 340" width="440" height="340"><rect width="440" height="340" fill="#FAF8F5"/><polygon points="107.5,245 332.5,245 282.5,95 157.5,95" fill="#E8F0EC" stroke="#1B3D2F" stroke-width="2.5"/><text x="220" y="271" font-family="Arial, sans-serif" font-size="16" font-weight="600" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle">9 cm</text><text x="220" y="77" font-family="Arial, sans-serif" font-size="16" font-weight="600" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle">5 cm</text><line x1="173.5" y1="95" x2="173.5" y2="245" stroke="#8A8278" stroke-width="1.6" stroke-dasharray="5 4"/><path d="M 173.5 234 L 184.5 234 L 184.5 245" fill="none" stroke="#8A8278" stroke-width="1.3"/><text x="147.5" y="170" font-family="Arial, sans-serif" font-size="16" font-weight="600" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle">6 cm</text></svg></div>
+  </article><article class="card">
+    <div class="q" dir="ltr">A rectangle is 8 cm long and 5 cm wide. What is its area?</div>
+    <span class="badge on">Diagram</span>
+    <pre class="schema">{"shape":"rectangle","unit":"cm","w":8,"h":5}</pre><div class="svgbox"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 340" width="440" height="340"><rect width="440" height="340" fill="#FAF8F5"/><rect x="105" y="98.125" width="230" height="143.75" fill="#E8F0EC" stroke="#1B3D2F" stroke-width="2.5"/><text x="220" y="267.875" font-family="Arial, sans-serif" font-size="16" font-weight="600" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle">8 cm</text><text x="71" y="170" font-family="Arial, sans-serif" font-size="16" font-weight="600" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle">5 cm</text></svg></div>
+  </article><article class="card">
+    <div class="q" dir="rtl">מלבן הוא באורך 8 ס"מ ורוחב 4 ס"מ. מהו ההיקף שלו?</div>
+    <span class="badge on">Diagram</span>
+    <pre class="schema">{"shape":"rectangle","w":8,"h":4,"unit":"ס\"מ"}</pre><div class="svgbox"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 340" width="440" height="340"><rect width="440" height="340" fill="#FAF8F5"/><rect x="105" y="112.5" width="230" height="115" fill="#E8F0EC" stroke="#1B3D2F" stroke-width="2.5"/><text x="220" y="253.5" font-family="Arial, sans-serif" font-size="16" font-weight="600" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle" direction="rtl">8 ס"מ</text><text x="71" y="170" font-family="Arial, sans-serif" font-size="16" font-weight="600" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle" direction="rtl">4 ס"מ</text></svg></div>
+  </article><article class="card">
+    <div class="q" dir="ltr">What's the area of a triangle with base 10 cm and height 6 cm?</div>
+    <span class="badge on">Diagram</span>
+    <pre class="schema">{"shape":"triangle","unit":"cm","base":10,"height":6}</pre><div class="svgbox"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 340" width="440" height="340"><rect width="440" height="340" fill="#FAF8F5"/><polygon points="105,239 335,239 192.4,101" fill="#E8F0EC" stroke="#1B3D2F" stroke-width="2.5"/><text x="220" y="265" font-family="Arial, sans-serif" font-size="16" font-weight="600" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle">10 cm</text><line x1="192.4" y1="101" x2="192.4" y2="239" stroke="#8A8278" stroke-width="1.6" stroke-dasharray="5 4"/><path d="M 192.4 228 L 203.4 228 L 203.4 239" fill="none" stroke="#8A8278" stroke-width="1.3"/><text x="166.4" y="170" font-family="Arial, sans-serif" font-size="16" font-weight="600" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle">6 cm</text></svg></div>
+  </article><article class="card">
+    <div class="q" dir="ltr">A circle has a radius of 4 cm. Find its circumference.</div>
+    <span class="badge on">Diagram</span>
+    <pre class="schema">{"shape":"circle","radius":4,"unit":"cm"}</pre><div class="svgbox"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 340" width="440" height="340"><rect width="440" height="340" fill="#FAF8F5"/><circle cx="220" cy="170" r="105" fill="#E8F0EC" stroke="#1B3D2F" stroke-width="2.5"/><circle cx="220" cy="170" r="3.5" fill="#1B3D2F"/><line x1="220" y1="170" x2="325" y2="170" stroke="#8A8278" stroke-width="1.8"/><text x="272.5" y="155" font-family="Arial, sans-serif" font-size="16" font-weight="600" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle">4 cm</text></svg></div>
+  </article><article class="card">
+    <div class="q" dir="rtl">מה שטח המשולש עם בסיס 12 ס"מ וגובה 7 ס"מ?</div>
+    <span class="badge on">Diagram</span>
+    <pre class="schema">{"shape":"triangle","unit":"ס\"מ","base":12,"height":7}</pre><div class="svgbox"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 340" width="440" height="340"><rect width="440" height="340" fill="#FAF8F5"/><polygon points="105,237.08333333333334 335,237.08333333333334 192.4,102.91666666666666" fill="#E8F0EC" stroke="#1B3D2F" stroke-width="2.5"/><text x="220" y="263.08333333333337" font-family="Arial, sans-serif" font-size="16" font-weight="600" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle" direction="rtl">12 ס"מ</text><line x1="192.4" y1="102.91666666666666" x2="192.4" y2="237.08333333333334" stroke="#8A8278" stroke-width="1.6" stroke-dasharray="5 4"/><path d="M 192.4 226.08333333333334 L 203.4 226.08333333333334 L 203.4 237.08333333333334" fill="none" stroke="#8A8278" stroke-width="1.3"/><text x="166.4" y="170" font-family="Arial, sans-serif" font-size="16" font-weight="600" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle" direction="rtl">7 ס"מ</text></svg></div>
+  </article><article class="card">
+    <div class="q" dir="ltr">What is the sum of the interior angles of a triangle?</div>
+    <span class="badge off">Text-only</span>
+    <p class="declined">Correctly declined — abstract — no measurements to draw. The tutor answers in text, as normal.</p>
+  </article><article class="card">
+    <div class="q" dir="ltr">Can you help me solve 3x + 7 = 22?</div>
+    <span class="badge off">Text-only</span>
+    <p class="declined">Correctly declined — not geometry (algebra). The tutor answers in text, as normal.</p>
+  </article><article class="card">
+    <div class="q" dir="ltr">I need help with my history homework</div>
+    <span class="badge off">Text-only</span>
+    <p class="declined">Correctly declined — not geometry. The tutor answers in text, as normal.</p>
+  </article><article class="card">
+    <div class="q" dir="ltr">Find the volume of a cube with side 5 cm</div>
+    <span class="badge off">Text-only</span>
+    <p class="declined">Correctly declined — 3D shape — out of v1 scope. The tutor answers in text, as normal.</p>
+  </article></div>
+</div>
