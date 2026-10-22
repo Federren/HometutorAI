@@ -5,6 +5,7 @@ import AddStudent from "./AddStudent";
 import EnrollButton from "./EnrollButton";
 import DeleteButton from "./DeleteButton";
 import DismissFlagButton from "./DismissFlagButton";
+import SendHello, { type HelloRecipient } from "./SendHello";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -32,7 +33,7 @@ const pill: React.CSSProperties = { display: "inline-block", fontSize: 11, fontW
 export default async function AdminDashboard() {
   const [waitlistRes, profilesRes, msgsRes, consentRes] = await Promise.all([
     supabase.from("waitlist").select("id,name,email,language,source,created_at").order("created_at", { ascending: false }),
-    supabase.from("profiles").select("id,name,phone_number,age,grade,active,role").order("name"),
+    supabase.from("profiles").select("id,name,phone_number,age,grade,active,role,language").order("name"),
     supabase.from("messages").select("phone_number,role,created_at,subject_detected"),
     supabase.from("parental_consent").select("id,child_name,child_age,child_grade,child_whatsapp,parent_name,parent_phone,parent_email,language,signed_name,signed_at,enrolled_at").order("signed_at", { ascending: false }),
   ]);
@@ -44,15 +45,17 @@ export default async function AdminDashboard() {
   // Aggregate activity per person (keyed by phone) from the message log.
   const now = Date.now();
   const WEEK = 7 * 24 * 3600 * 1000;
-  type Agg = { count: number; sent: number; last: string; days: Set<string>; week: number; subjects: Map<string, number> };
+  type Agg = { count: number; sent: number; last: string; lastIn: string; days: Set<string>; week: number; subjects: Map<string, number> };
   const activity = new Map<string, Agg>();
   for (const m of msgsRes.data ?? []) {
     const key = m.phone_number as string;
     if (!key) continue;
-    const a = activity.get(key) ?? { count: 0, sent: 0, last: "", days: new Set<string>(), week: 0, subjects: new Map<string, number>() };
+    const a = activity.get(key) ?? { count: 0, sent: 0, last: "", lastIn: "", days: new Set<string>(), week: 0, subjects: new Map<string, number>() };
     a.count += 1;
-    if (m.role === "user") a.sent += 1;
     const ts = (m.created_at as string) ?? "";
+    // lastIn = the last message the person wrote. It, not last activity, decides
+    // whether WhatsApp's 24-hour window is still open for an outbound hello.
+    if (m.role === "user") { a.sent += 1; if (ts > a.lastIn) a.lastIn = ts; }
     if (ts > a.last) a.last = ts;
     if (ts) { a.days.add(ts.slice(0, 10)); if (now - new Date(ts).getTime() < WEEK) a.week += 1; }
     const subj = m.subject_detected as string | null;
@@ -62,6 +65,22 @@ export default async function AdminDashboard() {
   const topSubject = (a?: Agg): string =>
     !a || a.subjects.size === 0 ? "—" : [...a.subjects.entries()].sort((x, y) => y[1] - x[1])[0][0];
   const activeThisWeek = profiles.filter((p) => p.active && (activity.get(p.phone_number as string)?.week ?? 0) > 0).length;
+
+  // Everyone a hello can go to — students first, then the quietest at the top of
+  // each group, since they're the ones the nudge is for.
+  const helloRecipients: HelloRecipient[] = profiles
+    .filter((p) => p.active)
+    .map((p) => ({
+      phone: p.phone_number as string,
+      name: (p.name as string) || "—",
+      role: (p.role as string) || "student",
+      language: (p.language as string) ?? null,
+      lastInbound: activity.get(p.phone_number as string)?.lastIn || null,
+    }))
+    .sort((a, b) => {
+      const rank = (r: string) => (r === "student" ? 0 : 1);
+      return rank(a.role) - rank(b.role) || (a.lastInbound ?? "").localeCompare(b.lastInbound ?? "");
+    });
 
   // Safety flags — the table may not exist yet; degrade gracefully.
   const sf = await supabase
@@ -138,6 +157,17 @@ export default async function AdminDashboard() {
             Same experience for all three (student view, can peek behind the curtain) — teachers also get an educator-focused nudge. Add an email and they get an invitation with how to start.
           </p>
           <InviteAdvisor />
+        </section>
+
+        {/* Say hello / nudge */}
+        <section style={card}>
+          <h2 style={h2}>Say hello</h2>
+          <p style={{ fontSize: 13, color: "#7A7168", margin: "0 0 12px" }}>
+            A short, friendly reminder that the tutor is there. Pick one student or a few, edit the message, send.
+            WhatsApp only delivers a free-form message within <strong>24 hours</strong> of the student&apos;s last reply —
+            anyone marked <em>quiet</em> needs an approved template, so set <code>META_HELLO_TEMPLATE</code> once you have one.
+          </p>
+          <SendHello recipients={helloRecipients} />
         </section>
 
         {/* Waitlist */}
