@@ -19,6 +19,9 @@ const nextConfig = {
     return {
       beforeFiles: [
         { source: '/', destination: '/home.html' },
+        // India pilot: an English-only variant of the same page (Indian school
+        // vocabulary, no HE/AR), so / stays trilingual for Israel.
+        { source: '/in', destination: '/home-in.html' },
       ],
     }
   },
