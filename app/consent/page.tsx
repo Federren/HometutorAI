@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { DIAL_HINT, type Market } from "@/lib/phone";
 
 type Lang = "en" | "he" | "ar";
 
@@ -160,6 +161,10 @@ const border = "#DDD8CE";
 // Grades 1–12. Stored as a canonical value ("Grade 8") so it's language-stable;
 // only the displayed label localizes.
 const GRADES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+// Indian school boards — asked only on the India path, where a parent
+// expects the question and the answer changes how the tutor pitches work.
+const BOARDS = ["CBSE", "ICSE / ISC", "State Board", "IB / Cambridge", "Other"];
 const HE_GRADES = ["א", "ב", "ג", "ד", "ה", "ו", "ז", "ח", "ט", "י", "יא", "יב"];
 const AR_GRADES = ["الأول", "الثاني", "الثالث", "الرابع", "الخامس", "السادس", "السابع", "الثامن", "التاسع", "العاشر", "الحادي عشر", "الثاني عشر"];
 function gradeLabel(n: number, lang: Lang): string {
@@ -170,10 +175,19 @@ function gradeLabel(n: number, lang: Lang): string {
 
 export default function ConsentPage() {
   const [lang, setLang] = useState<Lang>("en");
+  // ?m=in is set by the India landing page; it picks the dialling hint,
+  // the school vocabulary and the board question. Read from window so the
+  // page stays statically rendered.
+  const [market, setMarket] = useState<Market | null>(null);
+  useEffect(() => {
+    const m = new URLSearchParams(window.location.search).get("m");
+    if (m === "in" || m === "il") setMarket(m);
+  }, []);
+  const isIndia = market === "in";
   const t = T[lang];
   const rtl = t.dir === "rtl";
 
-  const [f, setF] = useState({ childName: "", childAge: "", childGrade: "", childWhatsapp: "", parentName: "", parentPhone: "", parentEmail: "" });
+  const [f, setF] = useState({ childName: "", childAge: "", childGrade: "", childBoard: "", childWhatsapp: "", parentName: "", parentPhone: "", parentEmail: "" });
   const [c, setC] = useState([false, false, false]);
   const [signature, setSignature] = useState("");
   const [err, setErr] = useState("");
@@ -194,14 +208,20 @@ export default function ConsentPage() {
       const res = await fetch("/api/consent", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...f, language: lang, signed_name: signature.trim(),
+          ...f, language: lang, market, signed_name: signature.trim(),
           consent_use: c[0], consent_data_understood: c[1], consent_whatsapp_contact: c[2],
         }),
       });
-      if (!res.ok) throw new Error("failed");
+      if (!res.ok) {
+        // Surface what the server actually objected to — a rejected phone
+        // number is fixable in five seconds, but only if we say so.
+        const j = await res.json().catch(() => ({}));
+        throw new Error(typeof j.error === "string" ? j.error : "failed");
+      }
       setDone(true);
-    } catch {
-      setErr(t.required === T.en.required ? "Something went wrong. Please try again." : t.required);
+    } catch (e) {
+      const detail = e instanceof Error && e.message !== "failed" ? e.message : null;
+      setErr(detail ?? (lang === "en" ? "Something went wrong. Please try again." : t.required));
       setBusy(false);
     }
   }
@@ -218,7 +238,7 @@ export default function ConsentPage() {
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "20px 18px 80px" }}>
         {/* Language toggle */}
         <div style={{ display: "flex", gap: 6, justifyContent: rtl ? "flex-start" : "flex-end", marginBottom: 18 }}>
-          {(["en", "he", "ar"] as Lang[]).map((l) => (
+          {(isIndia ? (["en"] as Lang[]) : (["en", "he", "ar"] as Lang[])).map((l) => (
             <button key={l} onClick={() => setLang(l)} style={{
               padding: "5px 11px", fontSize: 13, borderRadius: 7, cursor: "pointer",
               border: `1.5px solid ${lang === l ? green : border}`,
@@ -249,19 +269,28 @@ export default function ConsentPage() {
                   <input style={input} type="number" min={4} max={19} value={f.childAge} onChange={(e) => set("childAge", e.target.value)} />
                 </div>
                 <div style={{ flex: 2 }}>
-                  <label style={label}>{t.childGrade}</label>
+                  <label style={label}>{isIndia ? "Child's class" : t.childGrade}</label>
                   <select style={{ ...input, cursor: "pointer" }} value={f.childGrade} onChange={(e) => set("childGrade", e.target.value)}>
-                    <option value="">{lang === "he" ? "בחר/י כיתה" : lang === "ar" ? "اختر الصف" : "Select grade"}</option>
-                    {GRADES.map((n) => <option key={n} value={`Grade ${n}`}>{gradeLabel(n, lang)}</option>)}
+                    <option value="">{isIndia ? "Select class" : lang === "he" ? "בחר/י כיתה" : lang === "ar" ? "اختر الصف" : "Select grade"}</option>
+                    {GRADES.map((n) => <option key={n} value={`Grade ${n}`}>{isIndia ? `Class ${n}` : gradeLabel(n, lang)}</option>)}
                   </select>
                 </div>
               </div>
+              {isIndia && (
+                <>
+                  <label style={label}>Board</label>
+                  <select style={{ ...input, cursor: "pointer" }} value={f.childBoard} onChange={(e) => set("childBoard", e.target.value)}>
+                    <option value="">Select board</option>
+                    {BOARDS.map((b) => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </>
+              )}
               <label style={label}>{t.childWhatsapp}</label>
-              <input style={input} value={f.childWhatsapp} onChange={(e) => set("childWhatsapp", e.target.value)} placeholder="+972…" />
+              <input style={input} value={f.childWhatsapp} onChange={(e) => set("childWhatsapp", e.target.value)} placeholder={DIAL_HINT[market ?? "il"]} />
               <label style={label}>{t.parentName}</label>
               <input style={input} value={f.parentName} onChange={(e) => set("parentName", e.target.value)} />
               <label style={label}>{t.parentPhone}</label>
-              <input style={input} value={f.parentPhone} onChange={(e) => set("parentPhone", e.target.value)} placeholder="+972…" />
+              <input style={input} value={f.parentPhone} onChange={(e) => set("parentPhone", e.target.value)} placeholder={DIAL_HINT[market ?? "il"]} />
               <label style={label}>{t.parentEmail}</label>
               <input style={input} type="email" value={f.parentEmail} onChange={(e) => set("parentEmail", e.target.value)} />
             </div>

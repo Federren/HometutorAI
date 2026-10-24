@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { waitUntil } from "@vercel/functions";
 import { sendEmail } from "@/lib/email";
+import { normalisePhone, marketFromE164, type Market } from "@/lib/phone";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -92,20 +93,50 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing required fields or consent." }, { status: 400 });
   }
 
+  // Normalise before storing. An unreachable number is the most expensive
+  // thing this form can record: it looks correct, and every later send fails
+  // silently. Reject it here, while the parent is still on the page.
+  const market = (b.market === "in" || b.market === "il" ? b.market : undefined) as Market | undefined;
+  const childPhone = normalisePhone(child_whatsapp, market);
+  if (!childPhone.ok) {
+    return NextResponse.json({ error: `Child's WhatsApp number: ${childPhone.reason}` }, { status: 400 });
+  }
+  const parentPhoneN = normalisePhone(parent_phone, market);
+  if (!parentPhoneN.ok) {
+    return NextResponse.json({ error: `Parent's phone: ${parentPhoneN.reason}` }, { status: 400 });
+  }
+
   const ageNum = parseInt(String(b.childAge ?? ""), 10);
   const child_age = Number.isFinite(ageNum) ? ageNum : null;
   const child_grade = str(b.childGrade);
   const language = str(b.language) ?? "en";
   const signed_name = str(b.signed_name);
 
-  const { error } = await supabase.from("parental_consent").insert({
-    parent_name, parent_email, parent_phone,
-    child_name, child_whatsapp, child_age, child_grade, language,
+  const base = {
+    parent_name, parent_email,
+    parent_phone: `+${parentPhoneN.e164}`,
+    child_name,
+    child_whatsapp: `+${childPhone.e164}`,
+    child_age, child_grade, language,
     consent_use: true, consent_data_understood: true, consent_whatsapp_contact: true,
     signed_name,
     ip_address: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
     user_agent: req.headers.get("user-agent"),
-  });
+  };
+  // country / market / child_board are added by a migration that may not have
+  // run yet. Postgres 42703 (and PostgREST PGRST204) mean "column not there" —
+  // fall back to the base row rather than losing a real signup.
+  const extras = {
+    country: childPhone.country,
+    market: market ?? marketFromE164(childPhone.e164),
+    child_board: str(b.childBoard),
+  };
+
+  let { error } = await supabase.from("parental_consent").insert({ ...base, ...extras });
+  if (error && (error.code === "42703" || error.code === "PGRST204")) {
+    console.warn("Consent: new columns missing, inserting base row —", error.message);
+    ({ error } = await supabase.from("parental_consent").insert(base));
+  }
 
   if (error) {
     console.error("Consent insert error:", error.message);

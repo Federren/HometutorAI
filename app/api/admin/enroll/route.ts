@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { waitUntil } from "@vercel/functions";
 import { sendEmail } from "@/lib/email";
+import { normalisePhone } from "@/lib/phone";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -95,10 +96,20 @@ export async function POST(req: NextRequest) {
   if (readErr || !consent) return NextResponse.json({ error: "Consent not found." }, { status: 404 });
   if (consent.enrolled_at) return NextResponse.json({ error: "This child is already enrolled." }, { status: 409 });
 
-  const phone = (consent.child_whatsapp ?? "").replace(/[^0-9]/g, "");
-  if (phone.length < 8) {
-    return NextResponse.json({ error: "This consent has no valid child WhatsApp number — enroll manually via Add Student." }, { status: 400 });
+  // child_board arrives with a migration that may not have run; ask for it on
+  // its own so a missing column can't block an enrolment.
+  const { data: boardRow } = await supabase
+    .from("parental_consent").select("child_board").eq("id", b.consentId).maybeSingle();
+  const childBoard = (boardRow as { child_board?: string | null } | null)?.child_board ?? null;
+
+  const checked = normalisePhone(consent.child_whatsapp ?? "");
+  if (!checked.ok) {
+    return NextResponse.json(
+      { error: `This consent's child WhatsApp number is not usable (${checked.reason}) — fix it before enrolling.` },
+      { status: 400 }
+    );
   }
+  const phone = checked.e164;
 
   // Create the student profile.
   const { error: insErr } = await supabase.from("profiles").insert({
@@ -107,6 +118,7 @@ export async function POST(req: NextRequest) {
     role: "student",
     age: consent.child_age ?? null,
     grade: consent.child_grade ?? null,
+    stream: childBoard,
     language: langString(consent.language),
     tone: defaultTone(consent.child_age ?? null, consent.child_name ?? ""),
     active: true,
