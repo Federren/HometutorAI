@@ -48,7 +48,7 @@ const T: Record<Lang, {
     safetyH: "Child Safety",
     safety: [
       "The tutor is restricted to academic subjects and schoolwork only.",
-      "If a child's messages indicate distress, the system responds with care and may point them toward appropriate support resources (such as ERAN, Israel's emotional support hotline).",
+      "If a child's messages indicate distress, the system responds with care and may point them toward an emotional support helpline for the country your child is in (for example ERAN on 1201 in Israel, or Tele-MANAS on 14416 in India).",
       "You can pause or remove your child from the pilot at any time by contacting us via WhatsApp.",
     ],
     consentH: "Consent",

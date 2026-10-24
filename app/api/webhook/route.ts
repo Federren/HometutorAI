@@ -274,6 +274,7 @@ interface StudentProfile {
 function countryFromPhone(phone: string): string | undefined {
   const p = phone.replace(/\D/g, "");
   if (p.startsWith("972")) return "Israel";
+  if (p.startsWith("91")) return "India";
   if (p.startsWith("44")) return "United Kingdom";
   if (p.startsWith("353")) return "Ireland";
   if (p.startsWith("61")) return "Australia";
@@ -394,6 +395,7 @@ Student wellbeing and crisis:
 - You are a tutor, not a counsellor. If a student expresses personal distress, self-harm or suicidal thoughts, abuse, or being unsafe, stop tutoring and respond with warmth and care. Take them seriously, but do not probe for details or try to counsel them yourself.
 - First distinguish personal from academic — "suicide" or "abuse" can come up for a history, health, literature, or psychology assignment. If it's a school topic, help normally. If it's personal, gently point them to a crisis line for THEIR country (shown in their profile) in their language, and encourage them to reach a trusted adult:
   - Israel: ERAN — 1201 (24/7).
+  - India: Tele-MANAS — 14416 (free, 24/7, available in many Indian languages).
   - United Kingdom / Ireland: Samaritans — 116 123 (free, 24/7).
   - United States / Canada: 988 Suicide & Crisis Lifeline — call or text 988.
   - If the country is unknown or not listed, encourage them to contact local emergency services or a trusted adult right away.
